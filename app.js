@@ -133,8 +133,14 @@
       return res.data;
     });
   }
+  /* Tải dữ liệu: chỉ vẽ lại màn hình khi dữ liệu thật sự thay đổi */
+  var lastSig = '', inflight = 0, syncTimer = null;
   function load(silent) {
     return api('bootstrap').then(function (d) {
+      if (inflight > 0) { scheduleSync(1500); return; }  /* đang lưu dở: chờ lưu xong mới đồng bộ */
+      var sig = JSON.stringify(d), changed = sig !== lastSig || !S.data;
+      lastSig = sig;
+      if (!changed) { if (!silent) toast('Dữ liệu đã mới nhất'); return; }
       var before = S.data ? (S.data.notifs || []).map(function (n) { return n.id; }) : null;
       var oldLogo = S.data && S.data.settings ? S.data.settings.logo : null;
       S.data = d; LS.set('pdt_cache', d);
@@ -147,9 +153,66 @@
       if (!silent) toast('Đã cập nhật dữ liệu');
     }).catch(function (e) { if (!silent) toast(e.message); });
   }
-  function act(action, data, okMsg) {
-    return api(action, data).then(function (r) { if (okMsg) toast(okMsg); return load(true).then(function () { return r; }); })
-      .catch(function (e) { toast(e.message); throw e; });
+  function scheduleSync(ms) {
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(function () { if (S.token) load(true); }, ms || 4000);
+  }
+  function upsert(list, o) {
+    for (var i = 0; i < list.length; i++) if (list[i].id === o.id) { list[i] = o; return; }
+    list.unshift(o);
+  }
+  /* Ghép kết quả máy chủ trả về vào dữ liệu trên máy, không tải lại toàn bộ */
+  function merge(action, data, r) {
+    var d = S.data; if (!d || !r) return;
+    if (r.task) upsert(d.tasks, r.task);
+    if (r.note) upsert(d.notes, r.note);
+    if (action === 'deleteNote') d.notes = d.notes.filter(function (n) { return n.id !== data.id; });
+    if (r.plan) upsert(d.plans, r.plan);
+    if (r.user) { upsert(d.users, r.user); if (r.user.id === d.me.id) Object.assign(d.me, r.user); }
+    if (action === 'rejectUser') d.users = d.users.filter(function (u) { return u.id !== data.id; });
+    if (r.settings) d.settings = r.settings;
+    if (action === 'readNotifs') d.notifs.forEach(function (n) { if (!data.ids || data.ids.indexOf(n.id) >= 0) n.read = true; });
+    LS.set('pdt_cache', d);
+  }
+  /* Lưu: (1) đổi ngay trên màn hình nếu có hàm local, (2) gửi máy chủ chạy nền,
+     (3) ghép kết quả trả về; lỗi thì trả màn hình về như cũ và báo lỗi */
+  function act(action, data, okMsg, local) {
+    var undo = null;
+    if (local && S.data) { try { undo = local(S.data); } catch (e) { undo = null; } render(); }
+    inflight++;
+    return api(action, data).then(function (r) {
+      inflight--;
+      if (undo && undo.temp) undo();
+      merge(action, data, r); render();
+      if (okMsg) toast(okMsg);
+      scheduleSync();
+      return r;
+    }).catch(function (e) {
+      inflight = Math.max(0, inflight - 1);
+      if (undo) { undo(); render(); }
+      toast(e.message); scheduleSync(1000);
+      throw e;
+    });
+  }
+  /* Thay đổi tạm trên máy cho các thao tác công việc */
+  function localTaskOp(x) {
+    return function (d) {
+      var t = d.tasks.filter(function (k) { return k.id === x.id; })[0];
+      if (!t) return null;
+      var old = JSON.parse(JSON.stringify(t)), td = today();
+      switch (x.op) {
+        case 'progress': t.progress = x.progress; if (t.progress > 0) t.status = 'dang'; break;
+        case 'start': t.status = 'dang'; break;
+        case 'submit': t.progress = 100; t.submittedAt = td; if (isLead()) { t.status = 'xong'; t.doneDate = td; } else t.status = 'cho_duyet'; break;
+        case 'approve': t.status = 'xong'; t.doneDate = t.submittedAt || td; if (x.score !== '' && x.score != null) t.score = +x.score; break;
+        case 'return': t.status = 'dang'; t.submittedAt = ''; break;
+        case 'reopen': t.status = 'dang'; t.doneDate = ''; t.score = null; break;
+        case 'accept': t.status = 'chua'; if (x.assigneeId) t.assigneeId = x.assigneeId; if (x.dueDate) t.dueDate = x.dueDate; break;
+        case 'cancel': t.status = 'huy'; break;
+        case 'restore': t.status = t.progress > 0 ? 'dang' : 'chua'; break;
+      }
+      return function () { Object.keys(t).forEach(function (k) { delete t[k]; }); Object.assign(t, old); };
+    };
   }
 
   /* ================= Thông báo, âm thanh ================= */
@@ -604,13 +667,18 @@
     el.querySelectorAll('[data-gm]').forEach(function (b) {
       b.onclick = function () {
         var k = +b.getAttribute('data-gm'), ym = S.month || [+today().slice(0, 4), +today().slice(5, 7)];
+        S.ganttLeft = null;
         if (k === 0) S.month = null; else { var d = new Date(ym[0], ym[1] - 1 + k, 1); S.month = [d.getFullYear(), d.getMonth() + 1]; }
         drawTaskBody();
       };
     });
     var gw = el.querySelector('.gantt');
     var ym = S.month || [+today().slice(0, 4), +today().slice(5, 7)];
-    if (gw && today().slice(0, 7) === ym[0] + '-' + pad(ym[1])) gw.scrollLeft = Math.max(0, (+today().slice(8, 10) - 3) * 38);
+    if (gw) {
+      if (S.ganttLeft != null) gw.scrollLeft = S.ganttLeft;
+      else if (today().slice(0, 7) === ym[0] + '-' + pad(ym[1])) gw.scrollLeft = Math.max(0, (+today().slice(8, 10) - 3) * 38);
+      gw.addEventListener('scroll', function () { S.ganttLeft = gw.scrollLeft; });
+    }
   }
   function openFilter() {
     var f = S.filter || {};
@@ -627,7 +695,7 @@
     var t = task(id); if (!t) return;
     var ov = openModal(t.code, '<div class="empty"><span class="spin"></span></div>');
     var unreadIds = (D().notifs || []).filter(function (n) { return !n.read && n.taskId === id; }).map(function (n) { return n.id; });
-    if (unreadIds.length) api('readNotifs', { ids: unreadIds }).then(function () { (D().notifs || []).forEach(function (n) { if (unreadIds.indexOf(n.id) >= 0) n.read = true; }); render(); }).catch(function () { });
+    if (unreadIds.length) { (D().notifs || []).forEach(function (n) { if (unreadIds.indexOf(n.id) >= 0) n.read = true; }); render(); api('readNotifs', { ids: unreadIds }).catch(function () { }); }
     function draw(logs) {
       t = task(id) || t;
       refreshModal(ov, taskDetailHtml(t, logs));
@@ -691,11 +759,16 @@
     return html;
   }
   function bindTaskDetail(ov, t, logs, draw) {
-    var reload = function () { return api('taskDetail', { id: t.id }).then(function (r) { draw(r.logs); }); };
+    var reload = function () { return api('taskDetail', { id: t.id }).then(function (r) { draw(r.logs); }).catch(function () { }); };
+    function run(x, msg) {
+      var p = act('taskAction', x, msg, localTaskOp(x));
+      draw(logs);
+      p.then(reload).catch(function () { draw(logs); });
+    }
     var prg = ov.querySelector('#prg');
     if (prg) {
       prg.oninput = function () { ov.querySelector('#pv').textContent = prg.value + '%'; ov.querySelector('.prog i').style.width = prg.value + '%'; };
-      ov.querySelector('#saveprg').onclick = function () { act('taskAction', { id: t.id, op: 'progress', progress: +prg.value }, 'Đã lưu tiến độ').then(reload); };
+      ov.querySelector('#saveprg').onclick = function () { run({ id: t.id, op: 'progress', progress: +prg.value }, 'Đã lưu tiến độ'); };
     }
     ov.querySelectorAll('[data-op]').forEach(function (b) {
       b.onclick = function () {
@@ -705,18 +778,18 @@
           ask('Duyệt hoàn thành', [
             { name: 'score', label: 'Điểm công việc (0–100)', type: 'number', value: def, min: 0, max: 100, hint: 'Gợi ý tự tính: 100 trừ ' + sett().truMoiNgayTre + ' điểm mỗi ngày nộp trễ (tối đa ' + sett().truToiDa + ').' },
             { name: 'note', label: 'Nhận xét (không bắt buộc)', type: 'textarea' }
-          ], 'Duyệt').then(function (r) { if (r) act('taskAction', { id: t.id, op: 'approve', score: r.score, note: r.note }, 'Đã duyệt').then(reload); });
+          ], 'Duyệt').then(function (r) { if (r) run({ id: t.id, op: 'approve', score: r.score, note: r.note }, 'Đã duyệt'); });
         } else if (op === 'accept') {
           var opts = activeUsers().filter(function (u) { return PDT.canAssignTo(me(), u); }).map(function (u) { return [u.id, u.name]; });
           ask('Duyệt đề xuất', [
             { name: 'assigneeId', label: 'Giao cho', type: 'select', value: t.assigneeId, options: opts },
             { name: 'dueDate', label: 'Hạn hoàn thành', type: 'date', value: t.dueDate }
-          ], 'Giao việc').then(function (r) { if (r) act('taskAction', { id: t.id, op: 'accept', assigneeId: r.assigneeId, dueDate: r.dueDate }, 'Đã giao việc').then(reload); });
+          ], 'Giao việc').then(function (r) { if (r) run({ id: t.id, op: 'accept', assigneeId: r.assigneeId, dueDate: r.dueDate }, 'Đã giao việc'); });
         } else if (op === 'return' || op === 'cancel' || op === 'submit' || op === 'reopen') {
           var lb = { return: ['Trả lại công việc', 'Lý do, yêu cầu hoàn thiện', 'Trả lại'], cancel: ['Hủy công việc', 'Lý do hủy', 'Hủy việc'], submit: ['Báo hoàn thành', 'Kết quả, ghi chú (không bắt buộc)', 'Gửi'], reopen: ['Mở lại công việc', 'Lý do', 'Mở lại'] }[op];
-          ask(lb[0], [{ name: 'note', label: lb[1], type: 'textarea' }], lb[2]).then(function (r) { if (r) act('taskAction', { id: t.id, op: op, note: r.note }, 'Đã cập nhật').then(reload); });
+          ask(lb[0], [{ name: 'note', label: lb[1], type: 'textarea' }], lb[2]).then(function (r) { if (r) run({ id: t.id, op: op, note: r.note }, 'Đã cập nhật'); });
         } else {
-          act('taskAction', { id: t.id, op: op }, 'Đã cập nhật').then(reload);
+          run({ id: t.id, op: op }, 'Đã cập nhật');
         }
       };
     });
@@ -737,13 +810,15 @@
       rd.readAsDataURL(f);
     };
     ov.querySelectorAll('[data-rmev]').forEach(function (b) {
-      b.onclick = function () { confirmBox('Gỡ minh chứng', 'Gỡ minh chứng này khỏi công việc?', 'Gỡ').then(function (ok) { if (ok) act('removeEvidence', { taskId: t.id, id: b.getAttribute('data-rmev') }, 'Đã gỡ').then(reload); }); };
+      b.onclick = function () { confirmBox('Gỡ minh chứng', 'Gỡ minh chứng này khỏi công việc?', 'Gỡ').then(function (ok) { if (ok) { var eid = b.getAttribute('data-rmev'); var p = act('removeEvidence', { taskId: t.id, id: eid }, 'Đã gỡ', function (d) { var k = d.tasks.filter(function (z) { return z.id === t.id; })[0], old = k.evidence; k.evidence = (old || []).filter(function (z) { return z.id !== eid; }); return function () { k.evidence = old; }; }); draw(logs); p.then(reload).catch(function () { draw(logs); }); } }); };
     });
     var cf = ov.querySelector('#cmt');
     cf.onsubmit = function (e) {
       e.preventDefault(); var v = cf.text.value.trim(); if (!v) return;
-      cf.querySelector('button').disabled = true;
-      api('addComment', { taskId: t.id, text: v }).then(function (r) { draw(r.logs); }).catch(function (er) { toast(er.message); cf.querySelector('button').disabled = false; });
+      draw((logs || []).concat([{ id: 'tam', userId: me().id, kind: 'comment', text: v, at: new Date().toISOString() }]));
+      inflight++;
+      api('addComment', { taskId: t.id, text: v }).then(function (r) { inflight--; draw(r.logs); scheduleSync(); })
+        .catch(function (er) { inflight = Math.max(0, inflight - 1); toast(er.message); draw(logs); var c2 = ov.querySelector('#cmt'); if (c2) c2.text.value = v; });
     };
   }
 
@@ -760,7 +835,7 @@
   function openTaskForm(t, opts) {
     opts = opts || {};
     var m = me(), isNew = !t, propose = !!opts.propose;
-    t = t || { title: opts.title || '', desc: '', assigneeId: opts.assigneeId || (propose ? m.id : ''), collaborators: [], team: opts.team || m.team || '', priority: 'thuong', category: '', startDate: today(), dueDate: opts.dueDate || addDays(today(), 7), planItem: opts.planItem || '' };
+    t = t || opts.draft || { title: opts.title || '', desc: '', assigneeId: opts.assigneeId || (propose ? m.id : ''), collaborators: [], team: opts.team || m.team || '', priority: 'thuong', category: '', startDate: today(), dueDate: opts.dueDate || addDays(today(), 7), planItem: opts.planItem || '' };
     var assignable = activeUsers().filter(function (u) { return propose ? true : PDT.canAssignTo(m, u); });
     if (!assignable.length) { assignable = [m]; propose = true; }
     var html = '<form id="tf">' +
@@ -789,10 +864,25 @@
       var x = { id: t.id, title: f.title.value, desc: f.desc.value, assigneeId: f.assigneeId.value, team: f.team.value, priority: f.priority.value, category: f.category.value,
         startDate: f.startDate.value, dueDate: f.dueDate.value, planItem: f.planItem.value, propose: propose,
         collaborators: Array.prototype.slice.call(f.querySelectorAll('[name=col]:checked')).map(function (c) { return c.value; }) };
-      var btn = this; btn.disabled = true;
-      act('saveTask', { task: x }, isNew ? (propose ? 'Đã gửi đề xuất' : 'Đã giao việc') : 'Đã lưu').then(function (r) {
-        closeModal(); if (opts.after) opts.after(r.task);
-      }).catch(function () { btn.disabled = false; });
+      var local = function (d) {
+        if (isNew) {
+          var tmp = Object.assign({}, x, { id: 'tam-' + Date.now(), code: 'Đang lưu…', creatorId: m.id, progress: 0, evidence: [],
+            status: propose || !PDT.canAssignTo(m, user(x.assigneeId)) ? 'de_xuat' : 'chua', createdAt: new Date().toISOString() });
+          d.tasks.unshift(tmp);
+          var u = function () { d.tasks = d.tasks.filter(function (k) { return k.id !== tmp.id; }); };
+          u.temp = true; return u;
+        }
+        var k = d.tasks.filter(function (z) { return z.id === x.id; })[0]; if (!k) return null;
+        var old = JSON.parse(JSON.stringify(k));
+        Object.keys(x).forEach(function (f2) { if (f2 !== 'propose') k[f2] = x[f2]; });
+        return function () { Object.keys(k).forEach(function (f2) { delete k[f2]; }); Object.assign(k, old); };
+      };
+      closeModal();
+      act('saveTask', { task: x }, isNew ? (propose ? 'Đã gửi đề xuất' : 'Đã giao việc') : 'Đã lưu', local).then(function (r) {
+        if (opts.after) opts.after(r.task);
+      }).catch(function () {
+        if (isNew) setTimeout(function () { openTaskForm(null, Object.assign({}, opts, { draft: x })); }, 300);
+      });
     };
   }
 
@@ -876,7 +966,7 @@
           '<div class="btns mt">' + (canGive ? '<button class="btn sm" data-give="' + it.id + '">' + ic('plus') + 'Giao việc</button>' : '') + (lead ? '<button class="btn sm" data-edititem="' + it.id + '">' + ic('edit') + 'Sửa</button>' : '') + '</div></div>';
       }).join('') : '<div class="empty">Chưa có nhiệm vụ.</div>') + '</div>';
     var root = app.querySelector('.main'); root.innerHTML = html; bindHeader(root); bindRows(root);
-    function save(p, msg) { return act('savePlan', { plan: p }, msg || 'Đã lưu'); }
+    function save(p, msg) { var PP = p; return act('savePlan', { plan: p }, msg || 'Đã lưu', function (d) { var k = d.plans.filter(function (z) { return z.id === PP.id; })[0]; if (!k) return null; var old = JSON.parse(JSON.stringify(k)); Object.assign(k, JSON.parse(JSON.stringify(PP))); return function () { Object.keys(k).forEach(function (f2) { delete k[f2]; }); Object.assign(k, old); }; }); }
     var g = root.querySelector('[data-goal]');
     if (g) g.onclick = function () { ask('Mục tiêu năm học', [{ name: 'goal', label: 'Mục tiêu', type: 'textarea', value: plan.goal }], 'Lưu').then(function (r) { if (r) save({ id: plan.id, goal: r.goal, items: plan.items }); }); };
     var st = root.querySelector('[data-status]');
@@ -928,7 +1018,7 @@
     var cr = root.querySelector('[data-create]');
     if (cr) cr.onclick = function () { act('savePlan', { plan: { kind: 'thang', year: schoolYearOf(key + '-01'), month: key, goal: '', items: [] } }, 'Đã tạo kế hoạch'); };
     if (!plan) return;
-    function save(p) { return act('savePlan', { plan: Object.assign({ id: plan.id, items: plan.items }, p) }, 'Đã lưu'); }
+    function save(p) { var PP = Object.assign({ id: plan.id, items: plan.items }, p); return act('savePlan', { plan: PP }, 'Đã lưu', function (d) { var k = d.plans.filter(function (z) { return z.id === PP.id; })[0]; if (!k) return null; var old = JSON.parse(JSON.stringify(k)); Object.assign(k, JSON.parse(JSON.stringify(PP))); return function () { Object.keys(k).forEach(function (f2) { delete k[f2]; }); Object.assign(k, old); }; }); }
     var g = root.querySelector('[data-goal]');
     if (g) g.onclick = function () { ask('Trọng tâm tháng ' + m + '/' + y, [{ name: 'goal', label: 'Trọng tâm', type: 'textarea', value: plan.goal }], 'Lưu').then(function (r) { if (r) save({ goal: r.goal }); }); };
     var st = root.querySelector('[data-status]'); if (st) st.onclick = function () { save({ status: plan.status === 'ban_hanh' ? 'du_thao' : 'ban_hanh' }); };
@@ -1038,10 +1128,20 @@
     f.date.oninput = showAl; showAl();
     f.lunar.onchange = function () { if (f.lunar.checked) f.yearly.checked = true; };
     ov.querySelector('[data-save]').onclick = function () {
-      act('saveNote', { note: { id: n.id, kind: f.kind.value, title: f.title.value, date: f.date.value, yearly: f.yearly.checked, lunar: f.lunar.checked, remindDays: +f.remindDays.value } }, 'Đã lưu ghi chú').then(closeModal);
+      var nx = { id: n.id, kind: f.kind.value, title: f.title.value, date: f.date.value, yearly: f.yearly.checked, lunar: f.lunar.checked, remindDays: +f.remindDays.value };
+      if (!nx.title.trim() || !nx.date) { toast('Nhập nội dung và ngày.'); return; }
+      closeModal();
+      act('saveNote', { note: nx }, 'Đã lưu ghi chú', function (d) {
+        if (nx.id) { var k = d.notes.filter(function (z) { return z.id === nx.id; })[0], old = JSON.parse(JSON.stringify(k)); Object.assign(k, nx); return function () { Object.assign(k, old); }; }
+        var tmp = Object.assign({}, nx, { id: 'tam-' + Date.now() }); d.notes.push(tmp);
+        var u = function () { d.notes = d.notes.filter(function (z) { return z.id !== tmp.id; }); }; u.temp = true; return u;
+      }).catch(function () { });
     };
     var dl = ov.querySelector('[data-del]');
-    if (dl) dl.onclick = function () { act('deleteNote', { id: n.id }, 'Đã xóa ghi chú').then(closeModal); };
+    if (dl) dl.onclick = function () {
+      closeModal();
+      act('deleteNote', { id: n.id }, 'Đã xóa ghi chú', function (d) { var old = d.notes; d.notes = old.filter(function (z) { return z.id !== n.id; }); return function () { d.notes = old; }; }).catch(function () { });
+    };
   }
 
   /* ================= Thêm ================= */
@@ -1142,7 +1242,7 @@
       }).join('') : '<div class="empty">Chưa có thông báo.</div>') + '</div>' +
       '<div class="foot">Thông báo được cập nhật mỗi ' + (CFG.LAM_MOI_GIAY || 60) + ' giây khi app đang mở.</div>';
     var root = app.querySelector('.main'); root.innerHTML = html; bindHeader(root);
-    var ra = root.querySelector('#readall'); if (ra) ra.onclick = function () { act('readNotifs', {}, 'Đã đọc tất cả'); };
+    var ra = root.querySelector('#readall'); if (ra) ra.onclick = function () { act('readNotifs', {}, 'Đã đọc tất cả', function (d) { var was = d.notifs.filter(function (n) { return !n.read; }); was.forEach(function (n) { n.read = true; }); return function () { was.forEach(function (n) { n.read = false; }); }; }).catch(function () { }); };
     root.querySelectorAll('[data-n]').forEach(function (el) {
       el.onclick = function () {
         var id = el.getAttribute('data-n'), tid = el.getAttribute('data-t');
@@ -1418,6 +1518,11 @@
     };
   }
   function render() {
+    var ae = document.activeElement, keep = ae && ae.id && app.contains(ae) ? { id: ae.id, s: ae.selectionStart, e: ae.selectionEnd } : null;
+    renderInner();
+    if (keep) { var el = document.getElementById(keep.id); if (el) { el.focus(); try { el.setSelectionRange(keep.s, keep.e); } catch (x) { } } }
+  }
+  function renderInner() {
     if (!S.token) return renderLogin();
     if (!S.data) { app.innerHTML = '<div class="boot">Đang tải dữ liệu…</div>'; return; }
     renderShell();

@@ -6,7 +6,7 @@
  */
 var PDT = (function () {
   'use strict';
-  var VERSION = '1.6.0';
+  var VERSION = '1.7.0';
 
   /* ---------- Cấu trúc dữ liệu (mỗi bảng = một trang tính) ---------- */
   var SCHEMA = {
@@ -630,6 +630,7 @@ var PDT = (function () {
         var out = fn(req.data || {}, me);
         try { var sent = flushPush(); if (req.action === 'testPush') out.sent = sent; }
         catch (pe) { if (req.action === 'testPush') err('Gửi qua Firebase lỗi: ' + (pe && pe.message || pe)); }
+        if (store.flush) store.flush();
         return { ok: true, data: out };
       } catch (e) {
         if (e && e.message === 'AUTH') return { ok: false, auth: true, error: 'Phiên đăng nhập đã hết, vui lòng đăng nhập lại.' };
