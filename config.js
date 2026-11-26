@@ -15,12 +15,12 @@ window.PDT_CONFIG = {
    * Hai mục này công khai được (không phải mật khẩu). Để trống thì chỉ báo khi app đang mở.
    */
   FIREBASE: {
-    apiKey: '',
-    authDomain: '',
-    projectId: '',
-    storageBucket: '',
-    messagingSenderId: '',
-    appId: ''
+    apiKey: 'AIzaSyDJWJ0ozGpfr2rz4sCas6bdpwDtsstQzOE',
+    authDomain: 'cong-viec-pdt.firebaseapp.com',
+    projectId: 'cong-viec-pdt',
+    storageBucket: 'cong-viec-pdt.firebasestorage.app',
+    messagingSenderId: '1029197138091',
+    appId: '1:1029197138091:web:c9266b358ba7465d59cfee'
   },
-  VAPID_KEY: ''
+  VAPID_KEY: 'BJXq2eGrJovsiYORD125C8n1UTnjL9cKMEGZ9fdYlRCUiuvUAd5luvqxGXkrtMSky_antrWMbn3pgoaY_z-6vSk'
 };
