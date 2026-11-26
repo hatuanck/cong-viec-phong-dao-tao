@@ -424,12 +424,12 @@
     var o = {}; (D().notifs || []).forEach(function (n) { if (!n.read && n.taskId) o[n.taskId] = 1; }); return o;
   }
   function taskRow(t, unread) {
-    var u = user(t.assigneeId), di = dueInfo(t), ev = (t.evidence || []).length;
+    var u = user(t.assigneeId), di = dueInfo(t), ev = (t.evidence || []).length, at = (t.attachments || []).length;
     var pri = t.priority === 'khan' ? ' · <span class="pri-khan">Khẩn cấp</span>' : t.priority === 'cao' ? ' · <span class="pri-cao">Cao</span>' : '';
     var showBar = (t.status === 'dang' || t.status === 'chua') && t.progress > 0;
     return '<div class="row" data-task="' + t.id + '"><span class="bullet' + (unread && unread[t.id] ? ' new' : '') + '"></span>' +
       '<div class="body"><div class="ttl">' + esc(t.title) + '</div><div class="meta"><span class="who">' + av(u) + '<span>' + esc(u ? u.name : '—') + '</span></span>' +
-      '<span class="sub">· ' + esc(t.code) + pri + '</span>' + (ev ? '<span class="sub">· ' + ev + ' minh chứng</span>' : '') +
+      '<span class="sub">· ' + esc(t.code) + pri + '</span>' + (at ? '<span class="sub">· ' + at + ' tài liệu</span>' : '') + (ev ? '<span class="sub">· ' + ev + ' minh chứng</span>' : '') +
       (t.status === 'de_xuat' ? '<span>· <b style="color:var(--s-dx)">Đề xuất</b></span>' : '') + '</div></div>' +
       '<div class="side"><b>' + ddmm(t.dueDate) + '</b><span class="' + di.cls + '">' + di.txt + '</span></div>' +
       (showBar ? '<div class="pbar"><i style="width:' + t.progress + '%"></i></div>' : '') + '</div>';
@@ -738,6 +738,14 @@
       (t.doneDate ? '<dt>Hoàn thành</dt><dd>' + ddmmyyyy(t.doneDate) + (t.score != null ? ' · <b>' + t.score + ' điểm</b>' : '') + '</dd>' : '') +
       (pl ? '<dt>Thuộc kế hoạch</dt><dd>' + esc(pl) + '</dd>' : '') + '</dl>' +
       (t.desc ? '<div class="mt" style="white-space:pre-wrap">' + esc(t.desc) + '</div>' : '') + '</div>';
+    var atts = t.attachments || [];
+    if (atts.length || canMan) html += '<div class="dh"><div style="display:flex;justify-content:space-between;align-items:center"><b>Tài liệu kèm theo (' + atts.length + ')</b>' +
+      (canMan && t.status !== 'huy' ? '<span class="btns"><button class="btn sm" data-attlink>' + ic('link') + 'Dán link</button>' + (DEMO ? '' : '<button class="btn sm" data-attfile>' + ic('clip') + 'Tải tệp</button>') + '</span>' : '') + '</div>' +
+      (atts.length ? atts.map(function (e) {
+        return '<div class="ev">' + ic('clip') + '<a href="' + esc(e.url) + '" target="_blank" rel="noopener">' + esc(e.name) + '</a><span class="small muted">' + timeAgo(e.at) + '</span>' +
+          (canMan ? '<button class="iconbtn" data-rmatt="' + e.id + '" aria-label="Gỡ">' + ic('trash') + '</button>' : '') + '</div>';
+      }).join('') : '<div class="small muted mt">Chưa có tài liệu. Đính kèm công văn, biểu mẫu, dữ liệu gốc để người thực hiện dùng.</div>') +
+      '<input type="file" id="attfile" multiple hidden></div>';
     var p = t.status === 'xong' ? 100 : (t.progress || 0);
     html += '<div class="dh"><div style="display:flex;justify-content:space-between;margin-bottom:8px"><b>Tiến độ</b><b id="pv">' + p + '%</b></div><div class="prog"><i style="width:' + p + '%"></i></div>' +
       (canWork && (t.status === 'chua' || t.status === 'dang') ? '<input type="range" id="prg" min="0" max="100" step="5" value="' + p + '" class="mt" aria-label="Tiến độ"><div class="btns mt"><button class="btn sm" id="saveprg">Lưu tiến độ</button></div>' : '') +
@@ -794,6 +802,17 @@
       };
     });
     var ed = ov.querySelector('[data-edit]'); if (ed) ed.onclick = function () { openTaskForm(task(t.id), { after: reload }); };
+    var atl = ov.querySelector('[data-attlink]');
+    if (atl) atl.onclick = function () {
+      ask('Thêm tài liệu kèm theo', [{ name: 'name', label: 'Tên tài liệu', ph: 'Ví dụ: Công văn số … của Bộ' }, { name: 'url', label: 'Đường dẫn (Google Drive, OneDrive…)', type: 'url', ph: 'https://' }], 'Thêm')
+        .then(function (r) { if (r) act('addAttachment', { taskId: t.id, name: r.name, url: r.url }, 'Đã thêm tài liệu').then(reload); });
+    };
+    var atb = ov.querySelector('[data-attfile]'), atf = ov.querySelector('#attfile');
+    if (atb) atb.onclick = function () { atf.click(); };
+    if (atf) atf.onchange = function () { uploadFiles(t.id, 'addAttachment', atf.files).then(reload); };
+    ov.querySelectorAll('[data-rmatt]').forEach(function (b) {
+      b.onclick = function () { confirmBox('Gỡ tài liệu', 'Gỡ tài liệu này khỏi công việc?', 'Gỡ').then(function (ok) { if (ok) act('removeAttachment', { taskId: t.id, id: b.getAttribute('data-rmatt') }, 'Đã gỡ').then(reload); }); };
+    });
     var al = ov.querySelector('[data-addlink]');
     if (al) al.onclick = function () {
       ask('Thêm minh chứng', [{ name: 'name', label: 'Tên minh chứng', ph: 'Ví dụ: Công văn số …' }, { name: 'url', label: 'Đường dẫn (Google Drive, OneDrive…)', type: 'url', ph: 'https://' }], 'Thêm')
@@ -820,6 +839,29 @@
       api('addComment', { taskId: t.id, text: v }).then(function (r) { inflight--; draw(r.logs); scheduleSync(); })
         .catch(function (er) { inflight = Math.max(0, inflight - 1); toast(er.message); draw(logs); var c2 = ov.querySelector('#cmt'); if (c2) c2.text.value = v; });
     };
+  }
+
+  /* Tải lần lượt nhiều tệp lên Drive (mỗi tệp tối đa 8 MB) */
+  function fileB64(f) { return new Promise(function (res, rej) { var rd = new FileReader(); rd.onload = function () { res(String(rd.result).split(',')[1]); }; rd.onerror = function () { rej(new Error('Không đọc được tệp ' + f.name)); }; rd.readAsDataURL(f); }); }
+  function uploadFiles(taskId, action, files) {
+    var list = Array.prototype.slice.call(files || []), ok = 0, big = [];
+    list = list.filter(function (f) { if (f.size > 8 * 1024 * 1024) { big.push(f.name); return false; } return true; });
+    if (big.length) toast('Bỏ qua tệp lớn hơn 8 MB (hãy dán link Drive): ' + big.join(', '));
+    if (!list.length) return Promise.resolve(0);
+    inflight++;
+    return list.reduce(function (p, f, i) {
+      return p.then(function () {
+        toast('Đang tải tệp ' + (i + 1) + '/' + list.length + ': ' + f.name);
+        return fileB64(f).then(function (b64) { return api(action, { taskId: taskId, name: f.name, mime: f.type, base64: b64 }); })
+          .then(function (r) { ok++; merge(action, {}, r); render(); })
+          .catch(function (e) { toast(f.name + ': ' + e.message); });
+      });
+    }, Promise.resolve()).then(function () {
+      inflight = Math.max(0, inflight - 1);
+      if (ok) toast('Đã tải ' + ok + '/' + list.length + ' tệp');
+      scheduleSync();
+      return ok;
+    });
   }
 
   /* ================= Biểu mẫu công việc ================= */
@@ -851,18 +893,44 @@
       '<div class="fld"><label>Hạn hoàn thành *</label><input class="inp" type="date" name="dueDate" required value="' + esc(t.dueDate) + '"></div></div>' +
       '<div class="two"><div class="fld"><label>Mức ưu tiên</label><select class="inp" name="priority">' + [['thuong', 'Thường'], ['cao', 'Cao'], ['khan', 'Khẩn cấp']].map(function (x) { return '<option value="' + x[0] + '"' + (t.priority === x[0] ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select></div>' +
       '<div class="fld"><label>Danh mục</label><select class="inp" name="category"><option value="">—</option>' + (sett().categories || []).map(function (c) { return '<option' + (t.category === c ? ' selected' : '') + '>' + esc(c) + '</option>'; }).join('') + '</select></div></div>' +
+      (isNew ? '<div class="fld"><label>Tài liệu kèm theo</label><div id="attlist"></div><div class="btns">' +
+        (DEMO ? '' : '<button type="button" class="btn sm" id="attpick">' + ic('clip') + 'Đính kèm tệp</button>') +
+        '<button type="button" class="btn sm" id="attlinkf">' + ic('link') + 'Dán link</button></div>' +
+        '<input type="file" id="attin" multiple hidden><div class="hint">Công văn, biểu mẫu, dữ liệu gốc… Mỗi tệp tối đa 8 MB; tệp lớn hơn hãy dán link Google Drive.</div></div>' : '') +
       '<div class="fld"><label>Thuộc kế hoạch, nhiệm vụ trọng tâm</label><select class="inp" name="planItem">' + planOptions().map(function (o) { return '<option value="' + esc(o[0]) + '"' + (o[0] === t.planItem ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select></div>' +
       '</form>';
     var ov = openModal(isNew ? (propose ? 'Đề xuất công việc' : 'Giao việc mới') : 'Sửa công việc', html, { foot: '<button class="btn" data-x>Hủy</button><button class="btn pri" data-save>' + (isNew ? (propose ? 'Gửi đề xuất' : 'Giao việc') : 'Lưu') + '</button>' });
     var f = ov.querySelector('#tf');
     f.assigneeId.onchange = function () { var u = user(f.assigneeId.value); if (u && u.team && isNew) f.team.value = u.team; };
+    var pend = (opts.draft && opts.draft.attachments) ? opts.draft.attachments.slice() : [], pendFiles = [];
+    function drawAtt() {
+      var el = ov.querySelector('#attlist'); if (!el) return;
+      el.innerHTML = pend.map(function (a, i) { return '<div class="ev">' + ic('link') + '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(a.name) + '</span><button type="button" class="iconbtn" data-rl="' + i + '" aria-label="Bỏ">' + ic('x') + '</button></div>'; }).join('') +
+        pendFiles.map(function (fl, i) { return '<div class="ev">' + ic('clip') + '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(fl.name) + ' <span class="muted small">(' + Math.max(1, Math.round(fl.size / 1024)) + ' KB)</span></span><button type="button" class="iconbtn" data-rf="' + i + '" aria-label="Bỏ">' + ic('x') + '</button></div>'; }).join('');
+      el.querySelectorAll('[data-rl]').forEach(function (b) { b.onclick = function () { pend.splice(+b.getAttribute('data-rl'), 1); drawAtt(); }; });
+      el.querySelectorAll('[data-rf]').forEach(function (b) { b.onclick = function () { pendFiles.splice(+b.getAttribute('data-rf'), 1); drawAtt(); }; });
+    }
+    var ap = ov.querySelector('#attpick'), ai = ov.querySelector('#attin'), alf = ov.querySelector('#attlinkf');
+    if (ap) ap.onclick = function () { ai.click(); };
+    if (ai) ai.onchange = function () {
+      Array.prototype.slice.call(ai.files).forEach(function (fl) { if (fl.size > 8 * 1024 * 1024) toast(fl.name + ' lớn hơn 8 MB, hãy dán link Drive.'); else pendFiles.push(fl); });
+      ai.value = ''; drawAtt();
+    };
+    if (alf) alf.onclick = function () {
+      ask('Dán link tài liệu', [{ name: 'name', label: 'Tên tài liệu', ph: 'Ví dụ: Công văn số … của Bộ' }, { name: 'url', label: 'Đường dẫn', type: 'url', ph: 'https://' }], 'Thêm').then(function (r) {
+        if (!r) return;
+        if (!/^https?:\/\//i.test(r.url.trim())) { toast('Đường dẫn phải bắt đầu bằng https://'); return; }
+        pend.push({ name: r.name.trim() || r.url.trim(), url: r.url.trim() }); drawAtt();
+      });
+    };
+    drawAtt();
     ov.querySelector('[data-save]').onclick = function () {
       if (!f.title.value.trim()) { toast('Chưa nhập tên công việc'); return; }
       if (!f.assigneeId.value) { toast('Chưa chọn người phụ trách'); return; }
       if (!f.dueDate.value) { toast('Chưa chọn hạn'); return; }
       if (f.startDate.value && f.startDate.value > f.dueDate.value) { toast('Ngày bắt đầu sau hạn hoàn thành'); return; }
       var x = { id: t.id, title: f.title.value, desc: f.desc.value, assigneeId: f.assigneeId.value, team: f.team.value, priority: f.priority.value, category: f.category.value,
-        startDate: f.startDate.value, dueDate: f.dueDate.value, planItem: f.planItem.value, propose: propose,
+        startDate: f.startDate.value, dueDate: f.dueDate.value, planItem: f.planItem.value, propose: propose, attachments: isNew ? pend : undefined,
         collaborators: Array.prototype.slice.call(f.querySelectorAll('[name=col]:checked')).map(function (c) { return c.value; }) };
       var local = function (d) {
         if (isNew) {
@@ -874,11 +942,13 @@
         }
         var k = d.tasks.filter(function (z) { return z.id === x.id; })[0]; if (!k) return null;
         var old = JSON.parse(JSON.stringify(k));
-        Object.keys(x).forEach(function (f2) { if (f2 !== 'propose') k[f2] = x[f2]; });
+        Object.keys(x).forEach(function (f2) { if (f2 !== 'propose' && x[f2] !== undefined) k[f2] = x[f2]; });
         return function () { Object.keys(k).forEach(function (f2) { delete k[f2]; }); Object.assign(k, old); };
       };
       closeModal();
+      var files = pendFiles.slice();
       act('saveTask', { task: x }, isNew ? (propose ? 'Đã gửi đề xuất' : 'Đã giao việc') : 'Đã lưu', local).then(function (r) {
+        if (files.length && r.task) uploadFiles(r.task.id, 'addAttachment', files);
         if (opts.after) opts.after(r.task);
       }).catch(function () {
         if (isNew) setTimeout(function () { openTaskForm(null, Object.assign({}, opts, { draft: x })); }, 300);

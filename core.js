@@ -6,7 +6,7 @@
  */
 var PDT = (function () {
   'use strict';
-  var VERSION = '1.7.0';
+  var VERSION = '1.8.0';
 
   /* ---------- Cấu trúc dữ liệu (mỗi bảng = một trang tính) ---------- */
   var SCHEMA = {
@@ -15,8 +15,8 @@ var PDT = (function () {
       num: ['sort'], bool: ['active', 'mustChange', 'pending'], json: []
     },
     Tasks: {
-      fields: ['id', 'code', 'title', 'desc', 'assigneeId', 'collaborators', 'creatorId', 'team', 'priority', 'category', 'status', 'progress', 'startDate', 'dueDate', 'doneDate', 'submittedAt', 'approvedBy', 'score', 'planItem', 'evidence', 'createdAt', 'updatedAt'],
-      num: ['progress', 'score'], bool: [], json: ['collaborators', 'evidence']
+      fields: ['id', 'code', 'title', 'desc', 'assigneeId', 'collaborators', 'creatorId', 'team', 'priority', 'category', 'status', 'progress', 'startDate', 'dueDate', 'doneDate', 'submittedAt', 'approvedBy', 'score', 'planItem', 'evidence', 'createdAt', 'updatedAt', 'attachments'],
+      num: ['progress', 'score'], bool: [], json: ['collaborators', 'evidence', 'attachments']
     },
     Logs: { fields: ['id', 'taskId', 'userId', 'kind', 'text', 'at'], num: [], bool: [], json: [] },
     Notes: {
@@ -348,6 +348,8 @@ var PDT = (function () {
       var now = env.nowIso();
       if (!x.id) {
         var t = { id: env.uuid(), code: nextCode(), creatorId: me.id, progress: 0, evidence: [], createdAt: now, updatedAt: now };
+        t.attachments = (x.attachments || []).slice(0, 20).filter(function (a) { return /^https?:\/\//i.test(String(a.url || '')); })
+          .map(function (a) { return { id: env.uuid(), name: String(a.name || a.url).slice(0, 200), url: String(a.url), by: me.id, at: now }; });
         fields.forEach(function (f) { t[f] = x[f] || ''; });
         t.title = String(t.title).trim();
         t.priority = t.priority || 'thuong';
@@ -482,6 +484,33 @@ var PDT = (function () {
       t.updatedAt = env.nowIso();
       store.put('Tasks', t);
       log(t.id, me.id, 'evidence', 'Thêm minh chứng: ' + (name || url));
+      return { task: t };
+    };
+
+    /* Tài liệu kèm theo khi giao việc (công văn, biểu mẫu, dữ liệu gốc): người giao, lãnh đạo, tổ trưởng/tổ phó thêm */
+    A.addAttachment = function (d, me) {
+      var t = task(d.taskId);
+      if (!canManage(me, t)) err('Chỉ người giao việc, lãnh đạo Phòng, tổ trưởng, tổ phó thêm tài liệu kèm theo.');
+      var url = String(d.url || '').trim(), name = String(d.name || '').trim();
+      if (d.base64) {
+        if (!env.saveFile) err('Bản dùng thử chưa tải tệp lên được; hãy dán đường dẫn.');
+        url = env.saveFile(name || 'tai-lieu', d.mime || 'application/octet-stream', d.base64, t.code);
+      }
+      if (!/^https?:\/\//i.test(url)) err('Đường dẫn phải bắt đầu bằng http:// hoặc https://');
+      t.attachments = (t.attachments || []).concat([{ id: env.uuid(), name: name || url, url: url, by: me.id, at: env.nowIso() }]);
+      t.updatedAt = env.nowIso();
+      store.put('Tasks', t);
+      log(t.id, me.id, 'evidence', 'Thêm tài liệu kèm theo: ' + (name || url));
+      return { task: t };
+    };
+    A.removeAttachment = function (d, me) {
+      var t = task(d.taskId);
+      if (!canManage(me, t)) err('Không có quyền gỡ tài liệu này.');
+      var a = (t.attachments || []).filter(function (e) { return e.id === d.id; })[0];
+      if (!a) err('Không tìm thấy tài liệu.');
+      t.attachments = t.attachments.filter(function (e) { return e.id !== d.id; });
+      store.put('Tasks', t);
+      log(t.id, me.id, 'evidence', 'Gỡ tài liệu kèm theo: ' + a.name);
       return { task: t };
     };
 
