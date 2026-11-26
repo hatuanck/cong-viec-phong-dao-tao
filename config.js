@@ -7,5 +7,20 @@ window.PDT_CONFIG = {
   API_URL: 'https://script.google.com/macros/s/AKfycbwswlFV8lJh3Gtug_eZhk5418PMdH4S5TxVQy4_cFX9RqmiYxsICEq23bTeq0OrU9Rq/exec',
   TEN_APP: 'Công việc Phòng Đào tạo',
   TEN_TRUONG: 'Trường Đại học Kinh tế - Kỹ thuật Công nghiệp',
-  LAM_MOI_GIAY: 60
+  LAM_MOI_GIAY: 60,
+  /*
+   * FIREBASE: để nhận thông báo cả khi đã đóng app. Lấy ở Firebase console:
+   * Cài đặt dự án > Chung > Ứng dụng web > Cấu hình SDK (firebaseConfig).
+   * VAPID_KEY: Cài đặt dự án > Cloud Messaging > Chứng chỉ Web Push > Cặp khóa.
+   * Hai mục này công khai được (không phải mật khẩu). Để trống thì chỉ báo khi app đang mở.
+   */
+  FIREBASE: {
+    apiKey: '',
+    authDomain: '',
+    projectId: '',
+    storageBucket: '',
+    messagingSenderId: '',
+    appId: ''
+  },
+  VAPID_KEY: ''
 };

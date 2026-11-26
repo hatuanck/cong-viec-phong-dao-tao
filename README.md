@@ -85,6 +85,30 @@ Dán lại hai tệp `Code.gs`, `core.gs` mới vào Apps Script, chạy hàm **
 
 Dán lại `Code.gs`, `core.gs` mới vào Apps Script, bấm Lưu, rồi **Triển khai › Quản lý các lần triển khai › Chỉnh sửa › Phiên bản mới › Triển khai**. Trang Users tự có thêm cột `badge` (nhãn chức vụ) ở lần dùng đầu.
 
+## Thông báo khi đóng app (Firebase, phiên bản 1.3)
+
+1. Vào console.firebase.google.com bằng tài khoản Google của Trưởng phòng › **Tạo dự án** (tắt Google Analytics).
+2. Trang tổng quan dự án › biểu tượng **</>** (Web) › đặt tên ứng dụng › **Đăng ký ứng dụng**. Chép khối `firebaseConfig` vào mục `FIREBASE` trong `config.js`.
+3. **Cài đặt dự án › Cloud Messaging › Chứng chỉ Web Push › Tạo cặp khóa**. Chép chuỗi khóa vào `VAPID_KEY` trong `config.js`.
+4. **Cài đặt dự án › Tài khoản dịch vụ › Tạo khóa riêng tư mới** › tải tệp JSON về. Mở tệp bằng Notepad, chép toàn bộ nội dung. Trong Apps Script: **Cài đặt dự án (bánh răng) › Thuộc tính tập lệnh › Thêm thuộc tính**: tên `FIREBASE_SA`, giá trị là nội dung vừa chép › **Lưu**. Tệp JSON này là khóa bí mật: không gửi ai, không tải lên GitHub; dán xong nên xóa tệp tải về.
+5. Dán lại `Code.gs`, `core.gs` mới vào Apps Script, chạy hàm **kiemTraFirebase** (cho phép quyền mới), rồi triển khai phiên bản mới.
+6. Tải `config.js`, `app.js`, `core.js`, `sw.js` mới lên GitHub. Trên điện thoại mở app › **Thêm › Thông báo trên thiết bị** › cho phép; dòng phụ hiện "Nhận cả khi đóng app" là đạt. Bấm **Gửi thử thông báo**, rồi đóng app và gửi thử lại từ máy khác.
+
+## Đổi logo (phiên bản 1.4)
+
+**Thêm › Cài đặt › Logo của app › Chọn logo mới**: logo trong app đổi ngay cho mọi người. Muốn đổi cả biểu tượng trên màn hình chính điện thoại: bấm **Tải bộ biểu tượng điện thoại**, tải 5 tệp nhận được lên thư mục `icons` trên GitHub (ghi đè). Android tự cập nhật sau ít ngày; iPhone xóa biểu tượng cũ rồi thêm lại.
+
+## Mở trên máy tính
+
+Mở đường dẫn app bằng Chrome hoặc Edge. Cài thành app riêng: bấm biểu tượng cài đặt ở cuối thanh địa chỉ (hoặc menu ⋮ › Truyền, lưu và chia sẻ › Cài đặt trang dưới dạng ứng dụng; Edge: menu … › Ứng dụng › Cài đặt trang web này dưới dạng ứng dụng).
+
+## Đưa cán bộ vào app (phiên bản 1.5)
+
+Có ba cách, dùng cách nào cũng được:
+1. **Cán bộ tự đăng ký**: màn đăng nhập › **Đăng ký** › nhập họ tên, email trường, tổ, mật khẩu. Lãnh đạo Phòng nhận thông báo, vào **Thêm › Nhân sự › Chờ duyệt** bấm **Duyệt** (chọn quyền, tổ, nhãn PT) hoặc **Từ chối**.
+2. **Thêm từng người**: **Thêm › Nhân sự › Thêm cán bộ**.
+3. **Thêm nhiều người**: **Thêm › Nhân sự › Thêm nhiều cán bộ**, dán danh sách mỗi dòng "Họ và tên, email, tổ" (dán thẳng từ Excel được). Mật khẩu ban đầu 1111.
+
 ## Cập nhật app về sau
 
 - Sửa giao diện: tải tệp mới đè lên kho GitHub. Đổi số phiên bản trong dòng `var CACHE = 'pdt-v1.0.0'` của `sw.js` để điện thoại nhận bản mới.
@@ -93,7 +117,7 @@ Dán lại `Code.gs`, `core.gs` mới vào Apps Script, bấm Lưu, rồi **Tri�
 
 ## Giới hạn cần biết
 
-- **Thông báo**: app kiểm tra việc mới mỗi 60 giây khi đang mở trên màn hình, và kiểm tra ngay mỗi lần mở lại app; có việc mới thì báo bằng âm thanh, thông báo của thiết bị và số đỏ trên chuông. Khi app đóng hoặc chạy nền thì không nhận được thông báo, vì Google Apps Script không gửi được thông báo đẩy. Muốn nhận cả khi đóng app cần thêm máy chủ đẩy thông báo (ví dụ Firebase Cloud Messaging).
+- **Thông báo**: khi chưa cấu hình Firebase, app chỉ báo việc mới lúc đang mở. Cấu hình Firebase (mục "Thông báo khi đóng app") thì điện thoại nhận thông báo cả khi đã đóng app; iPhone cần iOS 16.4 trở lên và phải cài app ra màn hình chính.
 - **Quy mô**: phù hợp một phòng vài chục người, vài nghìn công việc. Mỗi thao tác mất khoảng 1–2 giây do Google Sheet xử lý.
 - **Tệp minh chứng** tải lên tối đa 8 MB; tệp lớn hơn thì để trên Drive rồi dán link. Tệp tải lên được đặt quyền "ai có link thì xem được" để cán bộ không có tài khoản Google vẫn mở được.
 - **App Store, Google Play**: bản hiện tại cài từ trình duyệt (PWA). Đưa lên kho ứng dụng cần tài khoản nhà phát triển của Trường (Apple 99 USD/năm, Google 25 USD một lần) và đóng gói thêm.

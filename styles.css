@@ -292,3 +292,7 @@ input[type=range] { width: 100%; accent-color: var(--primary); }
 .mt { margin-top: 12px; } .mb0 { margin-bottom: 0; }
 .muted { color: var(--muted); }
 .small { font-size: 13px; }
+
+/* Logo trong Cài đặt */
+.logobox { width: 88px; height: 88px; flex: none; border: 1px solid var(--line); border-radius: 16px; display: grid; place-items: center; background: #fff; padding: 8px; }
+.logobox img { max-width: 100%; max-height: 100%; }

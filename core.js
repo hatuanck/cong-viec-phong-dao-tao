@@ -6,13 +6,13 @@
  */
 var PDT = (function () {
   'use strict';
-  var VERSION = '1.2.0';
+  var VERSION = '1.6.0';
 
   /* ---------- Cấu trúc dữ liệu (mỗi bảng = một trang tính) ---------- */
   var SCHEMA = {
     Users: {
-      fields: ['id', 'username', 'passHash', 'salt', 'name', 'role', 'team', 'title', 'birthday', 'phone', 'email', 'active', 'mustChange', 'sort', 'createdAt', 'badge'],
-      num: ['sort'], bool: ['active', 'mustChange'], json: []
+      fields: ['id', 'username', 'passHash', 'salt', 'name', 'role', 'team', 'title', 'birthday', 'phone', 'email', 'active', 'mustChange', 'sort', 'createdAt', 'badge', 'pending'],
+      num: ['sort'], bool: ['active', 'mustChange', 'pending'], json: []
     },
     Tasks: {
       fields: ['id', 'code', 'title', 'desc', 'assigneeId', 'collaborators', 'creatorId', 'team', 'priority', 'category', 'status', 'progress', 'startDate', 'dueDate', 'doneDate', 'submittedAt', 'approvedBy', 'score', 'planItem', 'evidence', 'createdAt', 'updatedAt'],
@@ -28,10 +28,11 @@ var PDT = (function () {
       num: [], bool: [], json: ['items']
     },
     Notifs: { fields: ['id', 'userId', 'text', 'taskId', 'read', 'at'], num: [], bool: ['read'], json: [] },
+    Devices: { fields: ['id', 'userId', 'token', 'ua', 'at'], num: [], bool: [], json: [] },
     Settings: { fields: ['id', 'value'], num: [], bool: [], json: ['value'] }
   };
 
-  var ROLES = { lanh_dao: 'Lãnh đạo Phòng', to_truong: 'Tổ trưởng', chuyen_vien: 'Chuyên viên' };
+  var ROLES = { lanh_dao: 'Lãnh đạo Phòng', to_truong: 'Tổ trưởng', to_pho: 'Tổ phó', chuyen_vien: 'Chuyên viên' };
   var TEAMS = {
     to1: 'Tổ Quản lý chương trình và Đào tạo từ xa',
     to2: 'Tổ Quản lý kế hoạch và Hợp tác doanh nghiệp'
@@ -145,7 +146,8 @@ var PDT = (function () {
 
   /* ---------- Phân quyền ---------- */
   function isLead(u) { return u && u.role === 'lanh_dao'; }
-  function isTeamLead(u) { return u && u.role === 'to_truong'; }
+  /* Tổ trưởng, Tổ phó: giao, duyệt việc của cán bộ trong tổ mình */
+  function isTeamLead(u) { return !!u && (u.role === 'to_truong' || u.role === 'to_pho'); }
   function canAssignTo(u, assignee) {
     if (!u || !assignee) return false;
     if (isLead(u)) return true;
@@ -191,7 +193,7 @@ var PDT = (function () {
     function userById(id) { return users().filter(function (u) { return u.id === id; })[0]; }
     function pubUser(u, me) {
       var o = { id: u.id, name: u.name, role: u.role, team: u.team, title: u.title, badge: u.badge, birthday: u.birthday, active: u.active, sort: u.sort };
-      if (isLead(me) || (me && me.id === u.id)) { o.username = u.username; o.phone = u.phone; o.email = u.email; }
+      if (isLead(me) || (me && me.id === u.id)) { o.username = u.username; o.phone = u.phone; o.email = u.email; o.pending = !!u.pending; o.createdAt = u.createdAt; }
       return o;
     }
     function task(id) { var t = store.all('Tasks').filter(function (x) { return x.id === id; })[0]; if (!t) err('Không tìm thấy công việc.'); return t; }
@@ -201,7 +203,24 @@ var PDT = (function () {
       ids.forEach(function (id) {
         if (!id || id === exceptId || seen[id]) return; seen[id] = 1;
         store.put('Notifs', { id: env.uuid(), userId: id, text: text, taskId: taskId || '', read: false, at: env.nowIso() });
+        pushQueue.push({ userId: id, text: text, taskId: taskId || '' });
       });
+    }
+    /* Gửi thông báo đẩy (Firebase) tới điện thoại, máy tính đã đăng ký của người nhận */
+    var pushQueue = [];
+    function flushPush() {
+      if (!pushQueue.length || !env.push) return 0;
+      var devs = store.all('Devices'), msgs = [];
+      pushQueue.forEach(function (q) {
+        devs.forEach(function (d) {
+          if (d.userId === q.userId) msgs.push({ token: d.token, title: 'Công việc Phòng Đào tạo', body: q.text, taskId: q.taskId });
+        });
+      });
+      pushQueue = [];
+      if (!msgs.length) return 0;
+      var bad = env.push(msgs) || [];
+      devs.forEach(function (d) { if (bad.indexOf(d.token) >= 0) store.del('Devices', d.id); });
+      return msgs.length - bad.length;
     }
     function leadsOf(team) {
       return users().filter(function (u) { return u.active && (isLead(u) || (isTeamLead(u) && u.team === team)); }).map(function (u) { return u.id; });
@@ -240,8 +259,64 @@ var PDT = (function () {
     A.login = function (d) {
       var name = normEmail(d.username);
       var u = users().filter(function (x) { return String(x.username).toLowerCase() === name; })[0];
-      if (!u || !u.active || hashPass(String(d.password || ''), u.salt) !== u.passHash) err('Sai email hoặc mật khẩu.');
+      if (!u || hashPass(String(d.password || ''), u.salt) !== u.passHash) err('Sai email hoặc mật khẩu.');
+      if (u.pending) err('Tài khoản đang chờ lãnh đạo Phòng duyệt. Vui lòng đăng nhập lại sau khi được duyệt.');
+      if (!u.active) err('Tài khoản đã ngừng sử dụng. Liên hệ lãnh đạo Phòng.');
       return { token: makeToken(u), mustChange: !!u.mustChange };
+    };
+
+    /* Cán bộ tự đăng ký bằng email trường; tài khoản chờ lãnh đạo Phòng duyệt mới dùng được */
+    A.register = function (d) {
+      var name = String(d.name || '').trim().replace(/\s+/g, ' ');
+      var mail = normEmail(d.email), pass = String(d.password || '');
+      if (name.length < 4) err('Nhập đầy đủ họ và tên.');
+      if (!validEmail(mail)) err('Chỉ đăng ký bằng email của Trường, dạng ten@uneti.edu.vn.');
+      if (pass.length < 6) err('Mật khẩu cần ít nhất 6 ký tự.');
+      var ex = users().filter(function (u) { return String(u.username).toLowerCase() === mail; })[0];
+      if (ex) err(ex.pending ? 'Email này đã đăng ký, đang chờ duyệt.' : 'Email này đã có tài khoản. Hãy đăng nhập.');
+      if (users().filter(function (u) { return u.pending; }).length >= 30) err('Đang có quá nhiều đăng ký chờ duyệt. Vui lòng liên hệ lãnh đạo Phòng.');
+      var salt = env.uuid();
+      var u = { id: env.uuid(), username: mail, email: mail, salt: salt, passHash: hashPass(pass, salt), name: name, role: 'chuyen_vien',
+        team: TEAMS[d.team] ? d.team : '', title: 'Chuyên viên', birthday: '', phone: '', active: false, pending: true, mustChange: false,
+        sort: 99, badge: '', createdAt: env.nowIso() };
+      store.put('Users', u);
+      notify(users().filter(function (x) { return x.active && isLead(x); }).map(function (x) { return x.id; }),
+        name + ' (' + mail + ') đăng ký tài khoản, chờ duyệt', '', u.id);
+      return { ok: 1 };
+    };
+    A.approveUser = function (d, me) {
+      if (!isLead(me)) err('Chỉ lãnh đạo Phòng duyệt tài khoản.');
+      var u = userById(d.id); if (!u || !u.pending) err('Không tìm thấy đăng ký chờ duyệt.');
+      u.pending = false; u.active = true;
+      if (d.role) u.role = d.role;
+      if (d.team != null) u.team = TEAMS[d.team] ? d.team : '';
+      if (d.title != null) u.title = String(d.title || '');
+      if (d.badge != null) u.badge = String(d.badge || '').trim().slice(0, 12);
+      store.put('Users', u);
+      notify([u.id], 'Chào mừng ' + u.name + '. Tài khoản đã được duyệt.', '', me.id);
+      return { user: pubUser(u, me) };
+    };
+    A.rejectUser = function (d, me) {
+      if (!isLead(me)) err('Chỉ lãnh đạo Phòng xử lý đăng ký.');
+      var u = userById(d.id); if (!u || !u.pending) err('Không tìm thấy đăng ký chờ duyệt.');
+      store.del('Users', u.id);
+      return {};
+    };
+    /* Thêm nhiều cán bộ một lần: mỗi dòng "Họ và tên, email" (có thể thêm ", tổ 1/2") */
+    A.addUsers = function (d, me) {
+      if (!isLead(me)) err('Chỉ lãnh đạo Phòng thêm cán bộ.');
+      var temp = String(settings().matKhauMacDinh || '1111'), created = [], skipped = [];
+      (d.rows || []).slice(0, 100).forEach(function (r) {
+        var name = String(r.name || '').trim(), mail = normEmail(r.email);
+        if (!name || !validEmail(mail)) { skipped.push((name || '?') + ': email không hợp lệ'); return; }
+        if (users().filter(function (u) { return String(u.username).toLowerCase() === mail; })[0]) { skipped.push(name + ': đã có tài khoản'); return; }
+        var salt = env.uuid();
+        store.put('Users', { id: env.uuid(), username: mail, email: mail, salt: salt, passHash: hashPass(temp, salt), name: name, role: 'chuyen_vien',
+          team: TEAMS[r.team] ? r.team : '', title: 'Chuyên viên', birthday: '', phone: '', active: true, pending: false, mustChange: true,
+          sort: 99, badge: '', createdAt: env.nowIso() });
+        created.push(mail);
+      });
+      return { created: created, skipped: skipped, tempPassword: temp };
     };
 
     A.bootstrap = function (d, me) {
@@ -512,19 +587,50 @@ var PDT = (function () {
     A.saveSettings = function (d, me) {
       if (!isLead(me)) err('Chỉ lãnh đạo Phòng đổi cài đặt.');
       var s = d.settings || {};
+      if (s.logo != null) {
+        var lg = String(s.logo);
+        if (lg && !/^data:image\/(png|webp|jpeg);base64,/.test(lg)) err('Logo phải là ảnh PNG, JPG hoặc WEBP.');
+        if (lg.length > 45000) err('Ảnh logo quá lớn, hãy chọn ảnh khác.');
+        setSetting('logo', lg);
+      }
       ['tenPhong', 'categories', 'truMoiNgayTre', 'truToiDa', 'truQuaHan', 'matKhauMacDinh'].forEach(function (k) {
         if (s[k] != null) setSetting(k, s[k]);
       });
       return { settings: settings() };
     };
 
-    var PUBLIC = { login: 1 };
+    A.registerDevice = function (d, me) {
+      var tok = String(d.token || '').trim();
+      if (tok.length < 20) err('Mã thiết bị không hợp lệ.');
+      var id = sha256(tok).slice(0, 32);
+      store.put('Devices', { id: id, userId: me.id, token: tok, ua: String(d.ua || '').slice(0, 120), at: env.nowIso() });
+      return { ok: 1 };
+    };
+    A.unregisterDevice = function (d, me) {
+      var id = sha256(String(d.token || '').trim()).slice(0, 32);
+      var dv = store.all('Devices').filter(function (x) { return x.id === id && x.userId === me.id; })[0];
+      if (dv) store.del('Devices', dv.id);
+      return { ok: 1 };
+    };
+    A.testPush = function (d, me) {
+      if (!env.push) err('Máy chủ chưa cấu hình Firebase.');
+      var devs = store.all('Devices').filter(function (x) { return x.userId === me.id; });
+      if (!devs.length) err('Thiết bị này chưa đăng ký nhận thông báo. Hãy bật Thông báo trên thiết bị trước.');
+      pushQueue.push({ userId: me.id, text: 'Thông báo thử: thiết bị đã nhận được thông báo từ máy chủ.', taskId: '' });
+      return { devices: devs.length };
+    };
+
+    var PUBLIC = { login: 1, register: 1 };
     function handle(req) {
       try {
         var fn = A[req && req.action];
         if (!fn) err('Thao tác không hợp lệ.');
         var me = PUBLIC[req.action] ? null : auth(req.token);
-        return { ok: true, data: fn(req.data || {}, me) };
+        pushQueue = [];
+        var out = fn(req.data || {}, me);
+        try { var sent = flushPush(); if (req.action === 'testPush') out.sent = sent; }
+        catch (pe) { if (req.action === 'testPush') err('Gửi qua Firebase lỗi: ' + (pe && pe.message || pe)); }
+        return { ok: true, data: out };
       } catch (e) {
         if (e && e.message === 'AUTH') return { ok: false, auth: true, error: 'Phiên đăng nhập đã hết, vui lòng đăng nhập lại.' };
         return { ok: false, error: e && e.userError ? e.message : 'Lỗi máy chủ: ' + (e && e.message || e) };

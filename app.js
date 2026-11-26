@@ -136,7 +136,9 @@
   function load(silent) {
     return api('bootstrap').then(function (d) {
       var before = S.data ? (S.data.notifs || []).map(function (n) { return n.id; }) : null;
+      var oldLogo = S.data && S.data.settings ? S.data.settings.logo : null;
       S.data = d; LS.set('pdt_cache', d);
+      if (oldLogo !== (d.settings || {}).logo) applyLogo();
       if (before) {
         var fresh = (d.notifs || []).filter(function (n) { return !n.read && before.indexOf(n.id) < 0; });
         if (fresh.length) alertNew(fresh);
@@ -169,7 +171,47 @@
   }
   function alertNew(list) {
     beep();
-    if (LS.get('pdt_push', true)) list.slice(0, 3).forEach(function (n) { sysNotify(CFG.TEN_APP || 'Công việc', n.text); });
+    /* Đã nhận qua Firebase thì máy chủ tự đẩy thông báo, không hiện trùng */
+    if (LS.get('pdt_push', true) && !LS.get('pdt_fcm', null)) list.slice(0, 3).forEach(function (n) { sysNotify(CFG.TEN_APP || 'Công việc', n.text); });
+  }
+
+  /* ================= Firebase: nhận thông báo cả khi đóng app ================= */
+  var FB = CFG.FIREBASE || {};
+  var FCM_ON = !DEMO && !!(FB.apiKey && FB.projectId && FB.messagingSenderId && FB.appId && CFG.VAPID_KEY);
+  var FB_VER = '10.12.2', messaging = null;
+  function loadScript(src) {
+    return new Promise(function (res, rej) {
+      var s = document.createElement('script'); s.src = src; s.onload = res;
+      s.onerror = function () { rej(new Error('Không tải được thư viện Firebase. Kiểm tra mạng.')); };
+      document.head.appendChild(s);
+    });
+  }
+  function getMessaging() {
+    if (messaging) return Promise.resolve(messaging);
+    var base = 'https://www.gstatic.com/firebasejs/' + FB_VER + '/';
+    return loadScript(base + 'firebase-app-compat.js').then(function () { return loadScript(base + 'firebase-messaging-compat.js'); })
+      .then(function () { if (!firebase.apps.length) firebase.initializeApp(FB); messaging = firebase.messaging(); return messaging; });
+  }
+  function registerPush() {
+    if (!FCM_ON || !S.token || !('serviceWorker' in navigator) || !('Notification' in window) || Notification.permission !== 'granted') return Promise.resolve(false);
+    return navigator.serviceWorker.ready
+      .then(function (reg) { return getMessaging().then(function (m) { return m.getToken({ vapidKey: CFG.VAPID_KEY, serviceWorkerRegistration: reg }); }); })
+      .then(function (tok) {
+        if (!tok) return false;
+        return api('registerDevice', { token: tok, ua: navigator.userAgent }).then(function () { LS.set('pdt_fcm', { token: tok, at: Date.now(), user: me().id }); return true; });
+      });
+  }
+  function unregisterPush() {
+    var f = LS.get('pdt_fcm', null); LS.del('pdt_fcm');
+    if (!f) return Promise.resolve();
+    var p = S.token ? api('unregisterDevice', { token: f.token }).catch(function () { }) : Promise.resolve();
+    return p.then(function () { return messaging ? messaging.deleteToken().catch(function () { }) : null; });
+  }
+  function keepPushFresh() {
+    if (!FCM_ON || LS.get('pdt_push', true) === false || !('Notification' in window) || Notification.permission !== 'granted') return;
+    var f = LS.get('pdt_fcm', null);
+    if (f && f.user === me().id && Date.now() - f.at < 3 * 86400000) return;
+    registerPush().catch(function () { });
   }
 
   /* ================= Dữ liệu dùng thử ================= */
@@ -180,6 +222,7 @@
       ['phophong', 'Phó Trưởng phòng (dùng thử)', 'lanh_dao', '', 'Phó Trưởng phòng'],
       ['totruong1', 'Tổ trưởng Tổ 1', 'to_truong', 'to1', 'Tổ trưởng'],
       ['totruong2', 'Tổ trưởng Tổ 2', 'to_truong', 'to2', 'Tổ trưởng'],
+      ['topho1', 'Tổ phó Tổ 1', 'to_pho', 'to1', 'Tổ phó'],
       ['chuyenvien1', 'Chuyên viên Tổ 1 An', 'chuyen_vien', 'to1', 'Chuyên viên'],
       ['chuyenvien2', 'Chuyên viên Tổ 1 Bình', 'chuyen_vien', 'to1', 'Chuyên viên'],
       ['chuyenvien3', 'Chuyên viên Tổ 2 Cường', 'chuyen_vien', 'to2', 'Chuyên viên'],
@@ -335,7 +378,7 @@
     opts = opts || {};
     var unread = (D().notifs || []).filter(function (n) { return !n.read; }).length;
     return '<div class="top' + (opts.back ? ' sub' : '') + '">' + (opts.back ? '<button class="iconbtn back" data-back aria-label="Quay lại">' + ic('left') + '</button>' : '') +
-      (opts.logo ? '<img class="logo" src="icons/logo-uneti.png" alt="UNETI">' : '') +
+      (opts.logo ? '<img class="logo" src="' + esc(logoSrc()) + '" alt="Logo">' : '') +
       '<h1>' + esc(title) + '</h1>' + (opts.extra || '') +
       (opts.noRefresh ? '' : '<button class="iconbtn" data-refresh aria-label="Làm mới">' + ic('refresh') + '</button>') +
       '<button class="iconbtn" data-bell aria-label="Thông báo">' + ic('bell') + (unread ? '<span class="badge">' + (unread > 99 ? '99+' : unread) + '</span>' : '') + '</button></div>' +
@@ -1024,11 +1067,11 @@
       row('notifs', 'mega', 'Thông báo', (D().notifs || []).filter(function (n) { return !n.read; }).length ? '<span class="bluepill">' + (D().notifs || []).filter(function (n) { return !n.read; }).length + ' chưa đọc</span>' : '') +
       row('review', 'users', 'Việc tôi phụ trách', '<span class="bluepill">' + myOpen + ' đang mở' + (pending ? ' · ' + pending + ' chờ duyệt' : '') + '</span>') +
       row('eval', 'chart', 'Đánh giá kết quả') +
-      (lead ? row('staff', 'users', 'Nhân sự') + row('settings', 'gear', 'Cài đặt danh mục &amp; đánh giá') : row('staff', 'users', 'Nhân sự của Phòng')) +
+      (lead ? row('staff', 'users', 'Nhân sự', users().filter(function (u) { return u.pending; }).length ? '<span class="bluepill">' + users().filter(function (u) { return u.pending; }).length + ' chờ duyệt</span>' : '') + row('settings', 'gear', 'Cài đặt danh mục &amp; đánh giá') : row('staff', 'users', 'Nhân sự của Phòng')) +
       row('install', 'download', 'Cài đặt ứng dụng lên thiết bị') +
       '<div class="row" data-k="reload">' + ic('refresh', 'ic') + '<div class="body">Làm mới dữ liệu</div></div></div>' +
       '<div class="card list menu mt">' +
-      '<div class="row" data-k="push">' + ic('bell', 'ic') + '<div class="body">Thông báo trên thiết bị</div><span class="okpill' + (notifOn ? '' : ' off') + '">' + (notifOn ? 'Đã bật' : 'Chưa bật') + '</span></div>' +
+      '<div class="row" data-k="push">' + ic('bell', 'ic') + '<div class="body">Thông báo trên thiết bị' + (notifOn ? '<div class="small muted">' + (LS.get('pdt_fcm', null) ? 'Nhận cả khi đóng app' : 'Chỉ nhận khi app đang mở') + '</div>' : '') + '</div><span class="okpill' + (notifOn ? '' : ' off') + '">' + (notifOn ? 'Đã bật' : 'Chưa bật') + '</span></div>' +
       '<div class="row" data-k="testpush">' + ic('send', 'ic') + '<div class="body">Gửi thử thông báo</div></div>' +
       (notifOn ? '<div class="row" data-k="pushoff">' + ic('x', 'ic') + '<div class="body">Tắt thông báo trên thiết bị này</div></div>' : '') +
       '<div class="row" data-k="sound">' + ic('sound', 'ic') + '<div class="body">Âm thanh khi có việc mới</div><span class="okpill' + (S.sound ? '' : ' off') + '">' + (S.sound ? 'Bật' : 'Tắt') + '</span></div>' +
@@ -1043,10 +1086,18 @@
         var k = el.getAttribute('data-k');
         if (['notifs', 'eval', 'staff', 'settings', 'install', 'review'].indexOf(k) >= 0) return go('more', k);
         if (k === 'reload') return load(false);
-        if (k === 'push') return notifOn ? toast('Thông báo đang bật trên thiết bị này') : togglePush();
-        if (k === 'pushoff') { LS.set('pdt_push', false); toast('Đã tắt thông báo trên thiết bị này'); return render(); }
+        if (k === 'push') {
+          if (notifOn && (LS.get('pdt_fcm', null) || !FCM_ON)) return toast('Thông báo đang bật trên thiết bị này');
+          return togglePush();
+        }
+        if (k === 'pushoff') { LS.set('pdt_push', false); unregisterPush(); toast('Đã tắt thông báo trên thiết bị này'); return render(); }
         if (k === 'testpush') {
           if (!('Notification' in window) || Notification.permission !== 'granted') { toast('Hãy bật Thông báo trên thiết bị trước.'); return; }
+          if (LS.get('pdt_fcm', null)) {
+            toast('Đang gửi thử qua máy chủ…');
+            return api('testPush').then(function (r) { toast('Máy chủ đã gửi tới ' + (r.sent || 0) + '/' + r.devices + ' thiết bị. Thử đóng app rồi gửi lại để kiểm tra.'); })
+              .catch(function (e) { toast(e.message); });
+          }
           sysNotify(CFG.TEN_APP, 'Thông báo thử: thiết bị đã nhận được thông báo.'); beep(); return;
         }
         if (k === 'sound') { S.sound = !S.sound; LS.set('pdt_sound', S.sound); if (S.sound) beep(); return render(); }
@@ -1059,9 +1110,16 @@
   }
   function togglePush() {
     if (!('Notification' in window)) { toast('Thiết bị chưa hỗ trợ. Trên iPhone, hãy cài app ra màn hình chính trước.'); return; }
-    if (Notification.permission === 'granted') { LS.set('pdt_push', true); toast('Đã bật thông báo'); render(); return; }
     if (Notification.permission === 'denied') { toast('Thông báo đang bị chặn; mở cài đặt trình duyệt để cho phép.'); return; }
-    Notification.requestPermission().then(function (p) { LS.set('pdt_push', p === 'granted'); toast(p === 'granted' ? 'Đã bật thông báo' : 'Chưa được cho phép'); render(); });
+    var ask0 = Notification.permission === 'granted' ? Promise.resolve('granted') : Notification.requestPermission();
+    ask0.then(function (p) {
+      LS.set('pdt_push', p === 'granted');
+      if (p !== 'granted') { toast('Chưa được cho phép'); return render(); }
+      if (!FCM_ON) { toast('Đã bật thông báo (khi app đang mở)'); return render(); }
+      toast('Đang đăng ký nhận thông báo…');
+      return registerPush().then(function (ok) { toast(ok ? 'Đã bật: nhận thông báo cả khi đóng app' : 'Đã bật thông báo khi app đang mở'); render(); })
+        .catch(function (e) { toast('Chưa đăng ký được: ' + e.message); render(); });
+    });
   }
   function changePass(force) {
     return ask(force ? 'Đặt mật khẩu mới' : 'Đổi mật khẩu', [
@@ -1147,10 +1205,17 @@
     };
   }
   function renderStaff() {
-    var lead = isLead(), all = lead ? users() : activeUsers();
+    var lead = isLead(), all = (lead ? users() : activeUsers()).filter(function (u) { return !u.pending; });
+    var pend = lead ? users().filter(function (u) { return u.pending; }) : [];
     var groups = [['lead', 'Lãnh đạo Phòng']].concat(Object.keys(PDT.TEAMS).map(function (k) { return [k, PDT.TEAMS[k]]; })).concat([['none', 'Chưa xếp tổ']]);
     var html = header(lead ? 'Nhân sự' : 'Nhân sự của Phòng', { back: true, noRefresh: true }) +
-      (lead ? '<div class="bar"><button class="btn pri" id="adduser">' + ic('plus') + 'Thêm cán bộ</button></div>' : '');
+      (lead ? '<div class="bar"><button class="btn pri" id="adduser">' + ic('plus') + 'Thêm cán bộ</button><button class="btn" id="addmany">' + ic('users') + 'Thêm nhiều cán bộ</button></div>' +
+        '<div class="hint" style="margin:-4px 4px 8px">Cán bộ cũng có thể tự bấm <b>Đăng ký</b> ở màn đăng nhập bằng email trường; đăng ký hiện ở mục Chờ duyệt dưới đây.</div>' : '') +
+      (pend.length ? '<div class="sec"><h2>Chờ duyệt (' + pend.length + ')</h2></div><div class="card list">' + pend.map(function (u) {
+        return '<div class="row">' + av(u, true) + '<div class="body"><b>' + esc(u.name) + '</b><div class="meta">' + esc(u.username) +
+          (u.team ? ' · ' + esc(PDT.TEAMS[u.team]) : '') + (u.createdAt ? ' · ' + timeAgo(u.createdAt) : '') + '</div>' +
+          '<div class="btns mt"><button class="btn sm dan" data-rej="' + u.id + '">Từ chối</button><button class="btn sm ok" data-apv="' + u.id + '">' + ic('check') + 'Duyệt</button></div></div></div>';
+      }).join('') + '</div>' : '');
     groups.forEach(function (g) {
       var l = all.filter(function (u) { return g[0] === 'lead' ? u.role === 'lanh_dao' : g[0] === 'none' ? u.role !== 'lanh_dao' && !u.team : u.role !== 'lanh_dao' && u.team === g[0]; });
       if (!l.length) return;
@@ -1162,6 +1227,41 @@
     if (!lead) return;
     root.querySelector('#adduser').onclick = function () { userForm(); };
     root.querySelectorAll('[data-u]').forEach(function (el) { el.onclick = function () { userForm(user(el.getAttribute('data-u'))); }; });
+    root.querySelectorAll('[data-apv]').forEach(function (b) {
+      b.onclick = function () {
+        var u = user(b.getAttribute('data-apv'));
+        ask('Duyệt tài khoản ' + u.name, [
+          { type: 'info', html: esc(u.username) },
+          { name: 'role', label: 'Quyền', type: 'select', value: 'chuyen_vien', options: Object.keys(PDT.ROLES).map(function (k) { return [k, PDT.ROLES[k]]; }) },
+          { name: 'team', label: 'Tổ', type: 'select', value: u.team || '', options: [['', '—']].concat(Object.keys(PDT.TEAMS).map(function (k) { return [k, PDT.TEAMS[k]]; })) },
+          { name: 'title', label: 'Chức danh', value: u.title || 'Chuyên viên' },
+          { name: 'badge', label: 'Nhãn chức vụ (vd: PT 2, để trống nếu không cần)', value: '' }
+        ], 'Duyệt').then(function (r) { if (r) act('approveUser', Object.assign({ id: u.id }, r), 'Đã duyệt ' + u.name); });
+      };
+    });
+    root.querySelectorAll('[data-rej]').forEach(function (b) {
+      b.onclick = function () {
+        var u = user(b.getAttribute('data-rej'));
+        confirmBox('Từ chối đăng ký', 'Từ chối và xóa đăng ký của ' + u.name + ' (' + u.username + ')?', 'Từ chối').then(function (ok) { if (ok) act('rejectUser', { id: u.id }, 'Đã từ chối'); });
+      };
+    });
+    root.querySelector('#addmany').onclick = function () {
+      ask('Thêm nhiều cán bộ', [
+        { name: 'list', label: 'Mỗi dòng một cán bộ: Họ và tên, email (thêm ", 1" hoặc ", 2" để xếp vào Tổ 1, Tổ 2)', type: 'textarea',
+          ph: 'Nguyễn Văn A, nva@uneti.edu.vn, 1\nTrần Thị B, ttb@uneti.edu.vn, 2', hint: 'Có thể dán từ Excel (cột cách nhau bằng phím Tab). Tài khoản dùng mật khẩu ban đầu, cán bộ đổi khi đăng nhập lần đầu.' }
+      ], 'Thêm').then(function (r) {
+        if (!r || !r.list.trim()) return;
+        var rows = r.list.split(/\r?\n/).map(function (l) {
+          var p = l.split(/[,;\t]/).map(function (x) { return x.trim(); });
+          var t = (p[2] || '').replace(/\D/g, '');
+          return { name: p[0], email: p[1], team: t === '1' ? 'to1' : t === '2' ? 'to2' : '' };
+        }).filter(function (x) { return x.name || x.email; });
+        act('addUsers', { rows: rows }).then(function (x) {
+          ask('Kết quả thêm cán bộ', [{ type: 'info', html: 'Đã tạo <b>' + x.created.length + '</b> tài khoản, mật khẩu ban đầu <b>' + esc(x.tempPassword) + '</b>.' +
+            (x.skipped.length ? '<br><br>Bỏ qua ' + x.skipped.length + ' dòng:<br>' + x.skipped.map(esc).join('<br>') : '') }], 'Đã ghi nhận');
+        });
+      });
+    };
   }
   function userForm(u) {
     var isNew = !u; u = u || { name: '', username: '', role: 'chuyen_vien', team: '', title: 'Chuyên viên', active: true, sort: 99 };
@@ -1173,7 +1273,7 @@
       '<div class="fld"><label>Tổ</label><select class="inp" name="team"><option value="">—</option>' + Object.keys(PDT.TEAMS).map(function (k) { return '<option value="' + k + '"' + (u.team === k ? ' selected' : '') + '>' + PDT.TEAMS[k] + '</option>'; }).join('') + '</select></div></div>' +
       '<div class="two"><div class="fld"><label>Thứ tự hiển thị</label><input class="inp" type="number" name="sort" value="' + esc(u.sort == null ? 99 : u.sort) + '"></div>' +
       '<div class="fld"><label>Trạng thái</label><select class="inp" name="active"><option value="1"' + (u.active ? ' selected' : '') + '>Đang làm việc</option><option value="0"' + (u.active ? '' : ' selected') + '>Ngừng sử dụng</option></select></div></div>' +
-      '<div class="hint">Lãnh đạo Phòng: giao, duyệt mọi việc, quản lý nhân sự, cài đặt. Tổ trưởng: giao, duyệt việc trong tổ. Chuyên viên: nhận việc, cập nhật tiến độ, đề xuất việc.</div></form>';
+      '<div class="hint">Lãnh đạo Phòng: giao, duyệt mọi việc, quản lý nhân sự, cài đặt. Tổ trưởng, Tổ phó: giao việc cho cán bộ trong tổ, duyệt việc của tổ; lãnh đạo Phòng vẫn xem và duyệt được mọi việc. Chuyên viên: nhận việc, cập nhật tiến độ, đề xuất việc.</div></form>';
     var ov = openModal(isNew ? 'Thêm cán bộ' : 'Sửa thông tin cán bộ', html, {
       small: true, foot: (isNew ? '' : '<button class="btn" data-reset style="margin-right:auto">' + ic('lock') + 'Đặt lại mật khẩu</button>') + '<button class="btn" data-x>Hủy</button><button class="btn pri" data-save>Lưu</button>'
     });
@@ -1189,6 +1289,73 @@
       });
     };
   }
+  /* ================= Logo ================= */
+  var DEFAULT_LOGO = 'icons/logo-uneti.png';
+  function logoSrc() { return (S.data && S.data.settings && S.data.settings.logo) || LS.get('pdt_logo', '') || DEFAULT_LOGO; }
+  function readImage(file) {
+    return new Promise(function (res, rej) {
+      if (!/^image\/(png|jpeg|webp)$/.test(file.type)) { rej(new Error('Hãy chọn ảnh PNG, JPG hoặc WEBP.')); return; }
+      var url = URL.createObjectURL(file), img = new Image();
+      img.onload = function () { res(img); };
+      img.onerror = function () { rej(new Error('Không đọc được ảnh.')); };
+      img.src = url;
+    });
+  }
+  /* Logo trong app: thu về khung 240px, giữ nền trong suốt; giảm dần cỡ nếu dung lượng lớn */
+  function logoDataUrl(img) {
+    var sizes = [240, 200, 160, 128];
+    for (var i = 0; i < sizes.length; i++) {
+      var k = Math.min(1, sizes[i] / Math.max(img.naturalWidth, img.naturalHeight));
+      var c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(img.naturalWidth * k)); c.height = Math.max(1, Math.round(img.naturalHeight * k));
+      var g = c.getContext('2d'); g.imageSmoothingQuality = 'high'; g.drawImage(img, 0, 0, c.width, c.height);
+      var png = c.toDataURL('image/png');
+      if (png.length < 44000) return png;
+      var webp = c.toDataURL('image/webp', 0.9);
+      if (webp.indexOf('data:image/webp') === 0 && webp.length < 44000) return webp;
+    }
+    throw new Error('Ảnh logo quá chi tiết, hãy chọn ảnh khác nhỏ hơn.');
+  }
+  function iconCanvas(img, size, scale, round) {
+    var c = document.createElement('canvas'); c.width = c.height = size;
+    var g = c.getContext('2d'); g.fillStyle = '#ffffff'; g.fillRect(0, 0, size, size);
+    var k = size * scale / Math.max(img.naturalWidth, img.naturalHeight);
+    var w = img.naturalWidth * k, h = img.naturalHeight * k;
+    g.imageSmoothingQuality = 'high'; g.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+    return c;
+  }
+  function loadImg(src) { return new Promise(function (res, rej) { var i = new Image(); i.onload = function () { res(i); }; i.onerror = function () { rej(new Error('Không đọc được logo.')); }; i.src = src; }); }
+  function downloadIcons() {
+    return loadImg(logoSrc()).then(function (img) {
+      var list = [['icon-192.png', 192, .84], ['icon-512.png', 512, .84], ['apple-touch-icon.png', 180, .84], ['icon-maskable-512.png', 512, .64], ['favicon.png', 64, .9]];
+      toast('Đang tạo 5 tệp biểu tượng…');
+      return list.reduce(function (p, x) {
+        return p.then(function () {
+          return new Promise(function (res) {
+            iconCanvas(img, x[1], x[2]).toBlob(function (b) {
+              var a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = x[0];
+              document.body.appendChild(a); a.click(); a.remove(); setTimeout(res, 400);
+            }, 'image/png');
+          });
+        });
+      }, Promise.resolve()).then(function () { toast('Đã tải 5 tệp biểu tượng. Tải lên thư mục icons trên GitHub.'); });
+    });
+  }
+  /* Áp logo cho biểu tượng trình duyệt, biểu tượng khi thêm vào màn hình chính iPhone */
+  function applyLogo() {
+    var src = logoSrc();
+    if (S.data && S.data.settings) LS.set('pdt_logo', S.data.settings.logo || '');
+    if (src === DEFAULT_LOGO) {
+      var f0 = document.querySelector('link[rel=icon]'); if (f0) f0.href = 'icons/favicon.png';
+      var a0 = document.querySelector('link[rel=apple-touch-icon]'); if (a0) a0.href = 'icons/apple-touch-icon.png';
+      return;
+    }
+    loadImg(src).then(function (img) {
+      var fav = document.querySelector('link[rel=icon]'); if (fav) fav.href = iconCanvas(img, 64, .9).toDataURL('image/png');
+      var ap = document.querySelector('link[rel=apple-touch-icon]'); if (ap) ap.href = iconCanvas(img, 180, .84).toDataURL('image/png');
+    }).catch(function () { });
+  }
+
   function renderSettings() {
     var s = sett();
     var html = header('Cài đặt', { back: true, noRefresh: true }) + '<form id="sf" class="card pad">' +
@@ -1198,9 +1365,27 @@
       '<div class="fld"><label>Trừ tối đa cho một việc trễ</label><input class="inp" type="number" name="truToiDa" value="' + esc(s.truToiDa) + '"></div></div>' +
       '<div class="two"><div class="fld"><label>Trừ điểm mỗi việc đang quá hạn</label><input class="inp" type="number" name="truQuaHan" value="' + esc(s.truQuaHan) + '"></div>' +
       '<div class="fld"><label>Mật khẩu mặc định khi cấp tài khoản</label><input class="inp" name="matKhauMacDinh" value="' + esc(s.matKhauMacDinh) + '"></div></div>' +
-      '<button class="btn pri" type="submit">Lưu cài đặt</button></form>';
+      '<button class="btn pri" type="submit">Lưu cài đặt</button></form>' +
+      '<div class="sec"><h2>Logo của app</h2></div><div class="card pad">' +
+      '<div style="display:flex;gap:16px;align-items:center"><div class="logobox"><img src="' + esc(logoSrc()) + '" alt="Logo"></div>' +
+      '<div class="small muted">Logo hiện ở màn đăng nhập, Trang chủ, thanh bên và làm biểu tượng app khi cài mới. Nên dùng ảnh PNG nền trong suốt, hình gần vuông.</div></div>' +
+      '<div class="btns mt"><button class="btn pri" id="lgpick">' + ic('edit') + 'Chọn logo mới</button>' +
+      (s.logo ? '<button class="btn" id="lgreset">Dùng logo UNETI mặc định</button>' : '') +
+      '<button class="btn" id="lgicons">' + ic('download') + 'Tải bộ biểu tượng điện thoại</button></div>' +
+      '<input type="file" id="lgfile" accept="image/png,image/jpeg,image/webp" hidden>' +
+      '<div class="hint mt">Đổi biểu tượng trên màn hình chính điện thoại: bấm "Tải bộ biểu tượng điện thoại", tải 5 tệp vừa nhận lên thư mục <b>icons</b> trên GitHub (ghi đè). Android tự cập nhật sau ít ngày; iPhone cần xóa biểu tượng cũ rồi thêm lại vào màn hình chính.</div></div>';
     var root = app.querySelector('.main'); root.innerHTML = html; bindHeader(root);
     var f = root.querySelector('#sf');
+    var lf = root.querySelector('#lgfile');
+    root.querySelector('#lgpick').onclick = function () { lf.click(); };
+    lf.onchange = function () {
+      var file = lf.files[0]; if (!file) return;
+      readImage(file).then(function (img) { return act('saveSettings', { settings: { logo: logoDataUrl(img) } }, 'Đã đổi logo'); })
+        .then(function () { applyLogo(); render(); }).catch(function (e) { toast(e.message); });
+    };
+    var rs = root.querySelector('#lgreset');
+    if (rs) rs.onclick = function () { act('saveSettings', { settings: { logo: '' } }, 'Đã dùng lại logo UNETI').then(function () { applyLogo(); render(); }); };
+    root.querySelector('#lgicons').onclick = function () { downloadIcons().catch(function (e) { toast(e.message); }); };
     f.onsubmit = function (e) {
       e.preventDefault();
       act('saveSettings', { settings: { tenPhong: f.tenPhong.value, categories: f.categories.value.split('\n').map(function (x) { return x.trim(); }).filter(Boolean), truMoiNgayTre: +f.truMoiNgayTre.value, truToiDa: +f.truToiDa.value, truQuaHan: +f.truQuaHan.value, matKhauMacDinh: f.matKhauMacDinh.value } }, 'Đã lưu cài đặt');
@@ -1222,7 +1407,7 @@
   function renderShell() {
     var unread = (D().notifs || []).filter(function (n) { return !n.read; }).length;
     var tabs = [['home', 'home', 'Trang chủ'], ['tasks', 'list', 'Công việc'], ['plan', 'cal', 'Kế hoạch'], ['me', 'user', 'Của tôi'], ['more', 'more', 'Thêm']];
-    app.innerHTML = '<div class="shell"><nav class="tabbar"><div class="brand"><img src="icons/logo-uneti.png" alt="UNETI"><div>' + esc(sett().tenPhong) + '<small>Quản lý công việc</small></div></div>' +
+    app.innerHTML = '<div class="shell"><nav class="tabbar"><div class="brand"><img src="' + esc(logoSrc()) + '" alt="Logo"><div>' + esc(sett().tenPhong) + '<small>Quản lý công việc</small></div></div>' +
       tabs.map(function (t) { return '<button data-tab="' + t[0] + '" class="' + (S.tab === t[0] ? 'on' : '') + '">' + ic(t[1]) + '<span>' + t[2] + '</span>' + (t[0] === 'more' && unread ? '<span class="dot">' + unread + '</span>' : '') + '</button>'; }).join('') +
       '</nav><main class="main"></main></div><button class="fab" aria-label="Thêm mới">' + ic('plus') + '</button>';
     app.querySelectorAll('[data-tab]').forEach(function (b) { b.onclick = function () { var t = b.getAttribute('data-tab'); if (t === 'tasks' && S.tab !== 'tasks') { S.filter = {}; } go(t); }; });
@@ -1247,23 +1432,47 @@
 
   /* ================= Đăng nhập ================= */
   function renderLogin() {
-    app.innerHTML = '<div class="login"><form class="card" id="lf"><div class="lg"><img src="icons/logo-uneti.png" alt="UNETI"><div><h1>' + esc(CFG.TEN_APP || 'Công việc Phòng Đào tạo') + '</h1><p>' + esc(CFG.TEN_TRUONG || '') + '</p></div></div>' +
+    app.innerHTML = '<div class="login"><form class="card" id="lf"><div class="lg"><img src="' + esc(logoSrc()) + '" alt="Logo"><div><h1>' + esc(CFG.TEN_APP || 'Công việc Phòng Đào tạo') + '</h1><p>' + esc(CFG.TEN_TRUONG || '') + '</p></div></div>' +
       '<div class="fld"><label>Email</label><input class="inp" name="u" inputmode="email" autocomplete="username" autocapitalize="off" placeholder="ten@uneti.edu.vn" required></div>' +
       '<div class="fld"><label>Mật khẩu</label><input class="inp" name="p" type="password" autocomplete="current-password" required></div>' +
       '<div class="err" id="lerr"></div><button class="btn pri" type="submit">Đăng nhập</button>' +
-      (DEMO ? '<div class="demo mt">Bản dùng thử. Tài khoản mẫu (đuôi @uneti.edu.vn, mật khẩu chung <b>1111</b>): <b>truongphong</b> (lãnh đạo Phòng), <b>totruong1</b>, <b>totruong2</b> (tổ trưởng), <b>chuyenvien1</b>…<b>chuyenvien4</b>.</div>' : '') +
+      '<div class="small muted" style="text-align:center;margin-top:16px">Cán bộ Phòng chưa có tài khoản? <button type="button" class="link" id="reg">Đăng ký</button></div>' +
+      (DEMO ? '<div class="demo mt">Bản dùng thử. Tài khoản mẫu (đuôi @uneti.edu.vn, mật khẩu chung <b>1111</b>): <b>truongphong</b> (lãnh đạo Phòng), <b>totruong1</b>, <b>totruong2</b> (tổ trưởng), <b>topho1</b> (tổ phó), <b>chuyenvien1</b>…<b>chuyenvien4</b>.</div>' : '') +
       '</form></div>';
     var f = document.getElementById('lf');
+    document.getElementById('reg').onclick = openRegister;
     f.onsubmit = function (e) {
       e.preventDefault();
       var btn = f.querySelector('button'); btn.disabled = true; btn.innerHTML = '<span class="spin"></span>';
       api('login', { username: f.u.value, password: f.p.value }).then(function (r) {
         S.token = r.token; LS.set('pdt_token', r.token);
-        return load(true).then(function () { if (r.mustChange) changePass(true); });
+        return load(true).then(function () { keepPushFresh(); if (r.mustChange) changePass(true); });
       }).catch(function (er) { document.getElementById('lerr').textContent = er.message; btn.disabled = false; btn.textContent = 'Đăng nhập'; });
     };
   }
+  function openRegister() {
+    var html = '<form id="rf"><div class="fld"><label>Họ và tên</label><input class="inp" name="name" autocomplete="name"></div>' +
+      '<div class="fld"><label>Email của Trường</label><input class="inp" name="email" inputmode="email" autocapitalize="off" placeholder="ten@uneti.edu.vn"></div>' +
+      '<div class="fld"><label>Tổ</label><select class="inp" name="team"><option value="">— Chưa rõ —</option>' + Object.keys(PDT.TEAMS).map(function (k) { return '<option value="' + k + '">' + esc(PDT.TEAMS[k]) + '</option>'; }).join('') + '</select></div>' +
+      '<div class="two"><div class="fld"><label>Mật khẩu (từ 6 ký tự)</label><input class="inp" name="p1" type="password" autocomplete="new-password"></div>' +
+      '<div class="fld"><label>Nhập lại mật khẩu</label><input class="inp" name="p2" type="password" autocomplete="new-password"></div></div>' +
+      '<div class="err" id="rerr"></div><div class="hint">Lãnh đạo Phòng duyệt xong, anh/chị đăng nhập bằng email và mật khẩu vừa đặt.</div></form>';
+    var ov = openModal('Đăng ký tài khoản', html, { small: true, foot: '<button class="btn" data-x>Hủy</button><button class="btn pri" data-reg>Gửi đăng ký</button>' });
+    var rf = ov.querySelector('#rf');
+    ov.querySelector('[data-reg]').onclick = function () {
+      var e = ov.querySelector('#rerr'); e.textContent = '';
+      if (rf.p1.value !== rf.p2.value) { e.textContent = 'Hai lần nhập mật khẩu không khớp.'; return; }
+      var b = this; b.disabled = true;
+      api('register', { name: rf.name.value, email: rf.email.value, team: rf.team.value, password: rf.p1.value }).then(function () {
+        closeModal();
+        setTimeout(function () { ask('Đã gửi đăng ký', [{ type: 'info', html: 'Đăng ký đã chuyển tới lãnh đạo Phòng. Sau khi được duyệt, anh/chị đăng nhập bằng email và mật khẩu vừa đặt.' }], 'Đã hiểu'); }, 300);
+      }).catch(function (er) { e.textContent = er.message; b.disabled = false; });
+    };
+  }
   function logout(expired) {
+    var f = LS.get('pdt_fcm', null);
+    if (f && !expired) api('unregisterDevice', { token: f.token }).catch(function () { });
+    LS.del('pdt_fcm');
     S.token = null; S.data = null; S.tab = 'home'; S.sub = null; S.filter = {}; S.month = null; LS.del('pdt_token'); LS.del('pdt_cache');
     history.replaceState({ tab: 'home' }, '', '#home');
     while (modalStack.length) { var m = modalStack.pop(); m.el.remove(); }
@@ -1278,15 +1487,24 @@
 
   /* ================= Khởi động ================= */
   applyTheme();
+  if (LS.get('pdt_logo', '')) setTimeout(applyLogo, 0);
   var h = (location.hash || '').replace('#', '').split('/');
   if (['home', 'tasks', 'plan', 'me', 'more'].indexOf(h[0]) >= 0 && !h[1]) S.tab = h[0];
   history.replaceState({ tab: S.tab }, '', '#' + S.tab);
+  var openTaskId = new URLSearchParams(location.search).get('task');
+  if (openTaskId) history.replaceState({ tab: S.tab }, '', location.pathname + '#' + S.tab);
+  function openPendingTask() { if (openTaskId && task(openTaskId)) { var id = openTaskId; openTaskId = null; openTask(id); } }
   if (S.token) {
     var cached = LS.get('pdt_cache', null);
     if (cached) S.data = cached;
     render();
-    load(true);
+    load(true).then(function () { keepPushFresh(); openPendingTask(); });
   } else render();
+  if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', function (e) {
+    var d = e.data || {};
+    if (d.type === 'push' && S.token) load(true);
+    if (d.type === 'open' && d.taskId) { openTaskId = d.taskId; if (S.data) openPendingTask(); }
+  });
   setInterval(function () { if (S.token && !document.hidden && !modalStack.length) load(true); }, (CFG.LAM_MOI_GIAY || 60) * 1000);
   document.addEventListener('visibilitychange', function () { if (!document.hidden && S.token) load(true); });
   if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(function () { });
