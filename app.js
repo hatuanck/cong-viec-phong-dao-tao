@@ -32,7 +32,7 @@
     clearTimeout(toast._t); toast._t = setTimeout(function () { t.classList.remove('on'); }, 2600);
   }
   function initials(name) {
-    var w = String(name || '?').trim().split(/\s+/);
+    var w = String(name || '?').replace(/\(.*?\)/g, ' ').replace(/[^\p{L}\s]/gu, ' ').trim().split(/\s+/);
     return (w.length >= 2 ? w[w.length - 2][0] + w[w.length - 1][0] : String(name || '?').slice(0, 2)).toUpperCase();
   }
   var AVC = ['#1f8a5b', '#7a5a2f', '#2f6fdb', '#8e44ad', '#c0392b', '#16a085', '#d35400', '#34495e', '#b03a78', '#3c6e47'];
@@ -41,21 +41,21 @@
 
   /* ================= Biểu tượng ================= */
   var IC = {
-    home: '<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/>',
+    home: '<path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/>',
     list: '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/>',
     cal: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4M7 14h2M11 14h2M15 14h2M7 17h2M11 17h2"/>',
     user: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/>',
     more: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
     refresh: '<path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v5h-5"/>',
-    bell: '<path d="M6 16V11a6 6 0 1 1 12 0v5l2 2H4zM10 21h4"/>',
+    bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
     search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
     filter: '<path d="M4 6h16M7 12h10M10 18h4"/>',
     send: '<path d="M21 3 10 14M21 3l-7 18-4-7-7-4z"/>',
     left: '<path d="m15 18-6-6 6-6"/>', right: '<path d="m9 18 6-6-6-6"/>',
-    cake: '<path d="M4 21h16v-8a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2zM4 16c2 0 2-1.5 4-1.5s2 1.5 4 1.5 2-1.5 4-1.5 2 1.5 4 1.5M12 11V8M12 5.5c.8 0 1.2-.7 1.2-1.3S12 2 12 2s-1.2 1.6-1.2 2.2.4 1.3 1.2 1.3z"/>',
-    heart: '<path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/>',
-    mega: '<path d="M3 10v4h4l6 4V6L7 10zM16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/>',
+    cake: '<path d="M20 21v-8a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8"/><path d="M4 16s.5-1 2-1 2.5 2 4 2 2.5-2 4-2 2.5 2 4 2 2-1 2-1"/><path d="M2 21h20M7 8v3M12 8v3M17 8v3M7 4h.01M12 4h.01M17 4h.01"/>',
+    heart: '<path d="M19 14c1.5-1.5 3-3.2 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.8 0-3 .5-4.5 2-1.5-1.5-2.7-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4 3 5.5l7 7z"/>',
+    mega: '<path d="m3 11 18-5v12L3 14z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/>',
     users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.5 3-6 6.5-6s6.5 2.5 6.5 6M16 4.5a3.5 3.5 0 0 1 0 7M18 14c2.2.6 3.5 2.8 3.5 6"/>',
     chart: '<path d="M4 20V10M10 20V4M16 20v-7M21 20H3"/>',
     gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>',
@@ -252,7 +252,7 @@
     ov.className = 'ov';
     ov.innerHTML = '<div class="sheet' + (opts.small ? ' small' : '') + '" role="dialog" aria-modal="true">' +
       '<div class="sh"><h3>' + esc(title) + '</h3><button class="iconbtn" data-x aria-label="Đóng">' + ic('x') + '</button></div>' +
-      '<div class="sb">' + bodyHtml + '</div>' + (opts.foot ? '<div class="sf">' + opts.foot + '</div>' : '') + '</div>';
+      '<div class="sb">' + bodyHtml + '</div><div class="sf">' + (opts.foot || '') + '</div></div>';
     modalsEl.appendChild(ov);
     var m = { el: ov, onClose: opts.onClose };
     modalStack.push(m);
@@ -322,8 +322,8 @@
     var pri = t.priority === 'khan' ? ' · <span class="pri-khan">Khẩn cấp</span>' : t.priority === 'cao' ? ' · <span class="pri-cao">Cao</span>' : '';
     var showBar = (t.status === 'dang' || t.status === 'chua') && t.progress > 0;
     return '<div class="row" data-task="' + t.id + '"><span class="bullet' + (unread && unread[t.id] ? ' new' : '') + '"></span>' +
-      '<div class="body"><div class="ttl">' + esc(t.title) + '</div><div class="meta">' + av(u) + '<span>' + esc(u ? u.name : '—') + '</span>' +
-      '<span>· ' + esc(t.code) + '</span>' + pri + (ev ? '<span>· ' + ev + ' minh chứng</span>' : '') +
+      '<div class="body"><div class="ttl">' + esc(t.title) + '</div><div class="meta"><span class="who">' + av(u) + '<span>' + esc(u ? u.name : '—') + '</span></span>' +
+      '<span class="sub">· ' + esc(t.code) + pri + '</span>' + (ev ? '<span class="sub">· ' + ev + ' minh chứng</span>' : '') +
       (t.status === 'de_xuat' ? '<span>· <b style="color:var(--s-dx)">Đề xuất</b></span>' : '') + '</div></div>' +
       '<div class="side"><b>' + ddmm(t.dueDate) + '</b><span class="' + di.cls + '">' + di.txt + '</span></div>' +
       (showBar ? '<div class="pbar"><i style="width:' + t.progress + '%"></i></div>' : '') + '</div>';
@@ -334,7 +334,8 @@
   function header(title, opts) {
     opts = opts || {};
     var unread = (D().notifs || []).filter(function (n) { return !n.read; }).length;
-    return '<div class="top">' + (opts.back ? '<button class="iconbtn back" data-back aria-label="Quay lại">' + ic('left') + '</button>' : '') +
+    return '<div class="top' + (opts.back ? ' sub' : '') + '">' + (opts.back ? '<button class="iconbtn back" data-back aria-label="Quay lại">' + ic('left') + '</button>' : '') +
+      (opts.logo ? '<img class="logo" src="icons/logo-uneti.png" alt="UNETI">' : '') +
       '<h1>' + esc(title) + '</h1>' + (opts.extra || '') +
       (opts.noRefresh ? '' : '<button class="iconbtn" data-refresh aria-label="Làm mới">' + ic('refresh') + '</button>') +
       '<button class="iconbtn" data-bell aria-label="Thông báo">' + ic('bell') + (unread ? '<span class="badge">' + (unread > 99 ? '99+' : unread) + '</span>' : '') + '</button></div>' +
@@ -379,6 +380,7 @@
     }
     return { u: u, giao: mine.length, xong: xong.length, dung: xong.length - tre.length, tre: tre.length, qua: qua.length, ph: ph, score: score, list: mine };
   }
+  function nameCell(u) { return '<div class="nmw"><span class="n">' + esc(u.name) + '</span>' + (u.badge ? '<span class="tag pt">' + esc(u.badge) + '</span>' : '') + '</div>'; }
   function scoreBadge(s) { if (s == null) return '<span class="score n">—</span>'; return '<span class="score ' + (s >= 90 ? 'g' : s >= 70 ? 'y' : 'r') + '">' + s + '</span>'; }
   function curRange(mode, ym) {
     if (mode === 'year') { var sy = schoolYearOf(ym ? monthStart(ym[0], ym[1]) : today()); return yearRange(sy).concat(['Năm học ' + sy]); }
@@ -441,12 +443,12 @@
         return '<div class="p" data-person="' + x.u.id + '"><span class="n">' + esc(x.u.name) + '</span><div style="width:' + Math.max(8, Math.round(x.l.length / max * 100)) + '%">' + stackBar(x.c, x.l.length, 'sm') + '</div><span class="c">' + x.l.length + '</span></div>';
       }).join('') : '<div class="muted small">Chưa có công việc trong tháng.</div>') + '</div></div>' +
       '<div class="sec"><h2>Bảng tổng hợp ' + (S.sumMode === 'month' ? 'tháng ' + pad(ym[1]) + '/' + ym[0] : sr[2].toLowerCase()) + '</h2><div class="seg"><button data-sm="month" class="' + (S.sumMode === 'month' ? 'on' : '') + '">Tháng</button><button data-sm="year" class="' + (S.sumMode === 'year' ? 'on' : '') + '">Năm</button></div></div>' +
-      '<div class="card tblwrap"><table class="tbl"><thead><tr><th>Cán bộ</th><th class="r">Xong/Giao</th><th class="r">Quá hạn</th><th class="r">Điểm</th></tr></thead><tbody>' +
+      '<div class="card tblwrap"><table class="tbl sum"><thead><tr><th>Cán bộ</th><th class="r">Xong/Giao</th><th class="r">Quá hạn</th><th class="r">Điểm</th></tr></thead><tbody>' +
       rows.map(function (x) {
-        return '<tr data-person="' + x.u.id + '"><td>' + esc(x.u.name) + (x.ph ? '<span class="tag">PH ' + x.ph + '</span>' : '') + '</td><td class="r">' + x.xong + '/' + x.giao + '</td><td class="r' + (x.qua ? ' c-red' : '') + '">' + x.qua + '</td><td class="r">' + scoreBadge(x.score) + '</td></tr>';
-      }).join('') + '</tbody></table></div><div class="foot">PH: số việc phối hợp. Điểm = bình quân điểm các việc hoàn thành trừ ' + sett().truQuaHan + ' điểm cho mỗi việc đang quá hạn.</div>';
+        return '<tr data-person="' + x.u.id + '"><td>' + nameCell(x.u) + '</td><td class="r">' + x.xong + '/' + x.giao + '</td><td class="r' + (x.qua ? ' c-red' : '') + '">' + x.qua + '</td><td class="r">' + scoreBadge(x.score) + '</td></tr>';
+      }).join('') + '</tbody></table></div><div class="foot">Điểm = bình quân điểm các việc hoàn thành trừ ' + sett().truQuaHan + ' điểm cho mỗi việc đang quá hạn.</div>';
 
-    app.querySelector('.main').innerHTML = header('Trang chủ') + '<div class="cols"><div>' + left + '</div><div>' + right + '</div></div>';
+    app.querySelector('.main').innerHTML = header('Trang chủ', { logo: true }) + '<div class="cols"><div>' + left + '</div><div>' + right + '</div></div>';
     var root = app.querySelector('.main');
     bindHeader(root); bindRows(root);
     root.querySelector('[data-all]').onclick = function () { S.taskChip = isLead() ? 'open' : 'mine'; go('tasks'); };
@@ -586,6 +588,7 @@
     function draw(logs) {
       t = task(id) || t;
       refreshModal(ov, taskDetailHtml(t, logs));
+      var sf = ov.querySelector('.sf'); sf.className = 'sf act'; sf.innerHTML = taskDetailHtml.main;
       bindTaskDetail(ov, t, logs, draw);
     }
     api('taskDetail', { id: id }).then(function (r) { draw(r.logs); }).catch(function (e) { draw([]); toast(e.message); });
@@ -602,11 +605,11 @@
     var m = me(), s = eff(t), di = dueInfo(t), u = user(t.assigneeId), cr = user(t.creatorId);
     var canWork = PDT.canWork(m, t), canMan = PDT.canManage(m, t), canAp = PDT.canApprove(m, t);
     var isCollab = (t.collaborators || []).indexOf(m.id) >= 0;
-    var btns = [];
-    if (t.status === 'de_xuat' && (canAp || (isTL() && t.team === m.team))) { btns.push('<button class="btn ok" data-op="accept">' + ic('check') + 'Duyệt, giao việc</button>'); btns.push('<button class="btn dan" data-op="cancel">Không duyệt</button>'); }
-    if (canWork && t.status === 'chua') btns.push('<button class="btn" data-op="start">Bắt đầu làm</button>');
-    if (canWork && (t.status === 'chua' || t.status === 'dang')) btns.push('<button class="btn pri" data-op="submit">' + ic('check') + 'Báo hoàn thành</button>');
-    if (canAp && t.status === 'cho_duyet') { btns.push('<button class="btn ok" data-op="approve">' + ic('check') + 'Duyệt, chấm điểm</button>'); btns.push('<button class="btn" data-op="return">Trả lại</button>'); }
+    var btns = [], main = [];
+    if (t.status === 'de_xuat' && (canAp || (isTL() && t.team === m.team))) { main.push('<button class="btn dan" data-op="cancel">Không duyệt</button>'); main.push('<button class="btn ok" data-op="accept">' + ic('check') + 'Duyệt, giao việc</button>'); }
+    if (canWork && t.status === 'chua') main.push('<button class="btn" data-op="start">Bắt đầu làm</button>');
+    if (canWork && (t.status === 'chua' || t.status === 'dang')) main.push('<button class="btn pri" data-op="submit">' + ic('check') + 'Báo hoàn thành</button>');
+    if (canAp && t.status === 'cho_duyet') { main.push('<button class="btn" data-op="return">Trả lại</button>'); main.push('<button class="btn ok" data-op="approve">' + ic('check') + 'Duyệt, chấm điểm</button>'); }
     if (canAp && t.status === 'xong') btns.push('<button class="btn" data-op="reopen">Mở lại</button>');
     if (canMan && t.status !== 'huy' && t.status !== 'xong' && t.status !== 'de_xuat') btns.push('<button class="btn" data-edit>' + ic('edit') + 'Sửa</button>');
     if (canMan && t.status !== 'huy' && t.status !== 'xong' && t.status !== 'de_xuat') btns.push('<button class="btn dan" data-op="cancel">Hủy việc</button>');
@@ -641,6 +644,7 @@
       return '<div class="log' + (l.kind === 'comment' ? ' c' : '') + '">' + av(lu) + '<div class="lb"><b>' + esc(lu ? lu.name : '') + '</b> <span class="lt">' + timeAgo(l.at) + '</span>' +
         (l.kind === 'comment' ? '<div class="tx">' + esc(l.text) + '</div>' : '<div class="muted">' + esc(l.text) + '</div>') + '</div></div>';
     }).join('') + '</div><form id="cmt" class="bar mt mb0"><input class="inp" style="flex:1" name="text" placeholder="Viết trao đổi…" autocomplete="off"><button class="btn pri" aria-label="Gửi">' + ic('send') + '</button></form></div>';
+    taskDetailHtml.main = main.join('');
     return html;
   }
   function bindTaskDetail(ov, t, logs, draw) {
@@ -1011,13 +1015,14 @@
     }
     var m = me(), lead = isLead();
     var pending = tasks().filter(function (t) { return (t.status === 'cho_duyet' || t.status === 'de_xuat') && PDT.canApprove(m, t); }).length;
+    var myOpen = tasks().filter(function (t) { return t.assigneeId === m.id && ['chua', 'dang', 'cho_duyet'].indexOf(t.status) >= 0; }).length;
     var notifOn = ('Notification' in window) && Notification.permission === 'granted' && LS.get('pdt_push', true);
     function row(key, icn, label, val) { return '<div class="row" data-k="' + key + '">' + ic(icn, 'ic') + '<div class="body">' + label + '</div>' + (val || '') + ic('right', 'chev') + '</div>'; }
     var html = header('Thêm', { noRefresh: true }) +
       '<div class="card profile">' + av(m, true) + '<div style="flex:1"><b>' + esc(m.name) + '</b><span class="small muted">' + esc(m.title || PDT.ROLES[m.role]) + (m.team ? ' · ' + esc(PDT.TEAMS[m.team]) : '') + '</span></div></div>' +
       '<div class="card list menu mt">' +
       row('notifs', 'mega', 'Thông báo', (D().notifs || []).filter(function (n) { return !n.read; }).length ? '<span class="bluepill">' + (D().notifs || []).filter(function (n) { return !n.read; }).length + ' chưa đọc</span>' : '') +
-      ((lead || isTL()) ? row('review', 'users', 'Việc chờ tôi duyệt', '<span class="bluepill">' + pending + ' đang chờ</span>') : '') +
+      row('review', 'users', 'Việc tôi phụ trách', '<span class="bluepill">' + myOpen + ' đang mở' + (pending ? ' · ' + pending + ' chờ duyệt' : '') + '</span>') +
       row('eval', 'chart', 'Đánh giá kết quả') +
       (lead ? row('staff', 'users', 'Nhân sự') + row('settings', 'gear', 'Cài đặt danh mục &amp; đánh giá') : row('staff', 'users', 'Nhân sự của Phòng')) +
       row('install', 'download', 'Cài đặt ứng dụng lên thiết bị') +
@@ -1025,6 +1030,7 @@
       '<div class="card list menu mt">' +
       '<div class="row" data-k="push">' + ic('bell', 'ic') + '<div class="body">Thông báo trên thiết bị</div><span class="okpill' + (notifOn ? '' : ' off') + '">' + (notifOn ? 'Đã bật' : 'Chưa bật') + '</span></div>' +
       '<div class="row" data-k="testpush">' + ic('send', 'ic') + '<div class="body">Gửi thử thông báo</div></div>' +
+      (notifOn ? '<div class="row" data-k="pushoff">' + ic('x', 'ic') + '<div class="body">Tắt thông báo trên thiết bị này</div></div>' : '') +
       '<div class="row" data-k="sound">' + ic('sound', 'ic') + '<div class="body">Âm thanh khi có việc mới</div><span class="okpill' + (S.sound ? '' : ' off') + '">' + (S.sound ? 'Bật' : 'Tắt') + '</span></div>' +
       '<div class="row" data-k="theme">' + ic('sun', 'ic') + '<div class="body">Giao diện</div><span class="val">' + ({ light: 'Sáng', dark: 'Tối' }[LS.get('pdt_theme', '')] || 'Theo máy') + '</span></div>' +
       '<div class="row" data-k="bday">' + ic('cake', 'ic') + '<div class="body">Ngày sinh của tôi</div><span class="val">' + (m.birthday ? ddmmyyyy(m.birthday) : 'Chưa nhập') + '</span></div>' +
@@ -1037,7 +1043,8 @@
         var k = el.getAttribute('data-k');
         if (['notifs', 'eval', 'staff', 'settings', 'install', 'review'].indexOf(k) >= 0) return go('more', k);
         if (k === 'reload') return load(false);
-        if (k === 'push') return togglePush();
+        if (k === 'push') return notifOn ? toast('Thông báo đang bật trên thiết bị này') : togglePush();
+        if (k === 'pushoff') { LS.set('pdt_push', false); toast('Đã tắt thông báo trên thiết bị này'); return render(); }
         if (k === 'testpush') {
           if (!('Notification' in window) || Notification.permission !== 'granted') { toast('Hãy bật Thông báo trên thiết bị trước.'); return; }
           sysNotify(CFG.TEN_APP, 'Thông báo thử: thiết bị đã nhận được thông báo.'); beep(); return;
@@ -1052,7 +1059,7 @@
   }
   function togglePush() {
     if (!('Notification' in window)) { toast('Thiết bị chưa hỗ trợ. Trên iPhone, hãy cài app ra màn hình chính trước.'); return; }
-    if (Notification.permission === 'granted') { var on = !LS.get('pdt_push', true); LS.set('pdt_push', on); toast(on ? 'Đã bật thông báo' : 'Đã tắt thông báo trên thiết bị này'); render(); return; }
+    if (Notification.permission === 'granted') { LS.set('pdt_push', true); toast('Đã bật thông báo'); render(); return; }
     if (Notification.permission === 'denied') { toast('Thông báo đang bị chặn; mở cài đặt trình duyệt để cho phép.'); return; }
     Notification.requestPermission().then(function (p) { LS.set('pdt_push', p === 'granted'); toast(p === 'granted' ? 'Đã bật thông báo' : 'Chưa được cho phép'); render(); });
   }
@@ -1093,10 +1100,14 @@
     var prop = tasks().filter(function (t) { return t.status === 'de_xuat' && PDT.canApprove(m, t); });
     var given = tasks().filter(function (t) { return t.creatorId === m.id && t.assigneeId !== m.id && ['chua', 'dang'].indexOf(t.status) >= 0; })
       .sort(function (a, b) { return a.dueDate < b.dueDate ? -1 : 1; });
-    var html = header('Việc chờ tôi duyệt', { back: true, noRefresh: true }) +
-      '<div class="sec"><h2>Báo hoàn thành, chờ duyệt (' + wait.length + ')</h2></div><div class="card list">' + (wait.length ? wait.map(function (t) { return taskRow(t); }).join('') : '<div class="empty">Không có.</div>') + '</div>' +
+    var mine = tasks().filter(function (t) { return t.assigneeId === m.id && ['chua', 'dang', 'cho_duyet'].indexOf(t.status) >= 0; })
+      .sort(function (a, b) { return a.dueDate < b.dueDate ? -1 : 1; });
+    var canRv = isLead() || isTL();
+    var html = header('Việc tôi phụ trách', { back: true, noRefresh: true }) +
+      '<div class="sec"><h2>Việc tôi đang phụ trách (' + mine.length + ')</h2></div><div class="card list">' + (mine.length ? mine.map(function (t) { return taskRow(t); }).join('') : '<div class="empty">Không có việc đang mở.</div>') + '</div>' +
+      (!canRv ? '' : '<div class="sec"><h2>Báo hoàn thành, chờ tôi duyệt (' + wait.length + ')</h2></div><div class="card list">' + (wait.length ? wait.map(function (t) { return taskRow(t); }).join('') : '<div class="empty">Không có.</div>') + '</div>' +
       '<div class="sec"><h2>Đề xuất chờ duyệt (' + prop.length + ')</h2></div><div class="card list">' + (prop.length ? prop.map(function (t) { return taskRow(t); }).join('') : '<div class="empty">Không có.</div>') + '</div>' +
-      '<div class="sec"><h2>Việc tôi đã giao, đang thực hiện (' + given.length + ')</h2></div><div class="card list">' + (given.length ? given.map(function (t) { return taskRow(t); }).join('') : '<div class="empty">Không có.</div>') + '</div>';
+      '<div class="sec"><h2>Việc tôi đã giao, đang thực hiện (' + given.length + ')</h2></div><div class="card list">' + (given.length ? given.map(function (t) { return taskRow(t); }).join('') : '<div class="empty">Không có.</div>') + '</div>');
     var root = app.querySelector('.main'); root.innerHTML = html; bindHeader(root); bindRows(root);
   }
   function renderEval() {
@@ -1110,7 +1121,7 @@
       '<button class="btn sm" id="csv">' + ic('download') + 'Tải Excel</button></div>' +
       '<div class="card tblwrap"><table class="tbl"><thead><tr><th>Cán bộ</th><th class="r">Giao</th><th class="r">Xong</th><th class="r">Đúng hạn</th><th class="r">Trễ</th><th class="r">Quá hạn</th><th class="r">Phối hợp</th><th class="r">Điểm</th></tr></thead><tbody>' +
       rows.map(function (x) {
-        return '<tr data-person="' + x.u.id + '"><td>' + esc(x.u.name) + '</td><td class="r">' + x.giao + '</td><td class="r">' + x.xong + '</td><td class="r">' + x.dung + '</td><td class="r">' + x.tre + '</td><td class="r' + (x.qua ? ' c-red' : '') + '">' + x.qua + '</td><td class="r">' + x.ph + '</td><td class="r">' + scoreBadge(x.score) + '</td></tr>';
+        return '<tr data-person="' + x.u.id + '"><td style="min-width:170px">' + nameCell(x.u) + '</td><td class="r">' + x.giao + '</td><td class="r">' + x.xong + '</td><td class="r">' + x.dung + '</td><td class="r">' + x.tre + '</td><td class="r' + (x.qua ? ' c-red' : '') + '">' + x.qua + '</td><td class="r">' + x.ph + '</td><td class="r">' + scoreBadge(x.score) + '</td></tr>';
       }).join('') + '<tr style="font-weight:700;cursor:default"><td>Toàn Phòng</td><td class="r">' + tot.giao + '</td><td class="r">' + tot.xong + '</td><td class="r">' + tot.dung + '</td><td class="r">' + tot.tre + '</td><td class="r">' + tot.qua + '</td><td class="r">' + tot.ph + '</td><td></td></tr></tbody></table></div>' +
       '<div class="foot">Kỳ đánh giá tính các việc có thời gian thực hiện giao với kỳ. Điểm từng việc do người duyệt chấm (mặc định 100, trừ ' + sett().truMoiNgayTre + ' điểm/ngày nộp trễ, tối đa ' + sett().truToiDa + '). Điểm cán bộ = bình quân điểm các việc hoàn thành, trừ ' + sett().truQuaHan + ' điểm cho mỗi việc đang quá hạn.</div>';
     var root = app.querySelector('.main'); root.innerHTML = html; bindHeader(root);
@@ -1144,7 +1155,7 @@
       var l = all.filter(function (u) { return g[0] === 'lead' ? u.role === 'lanh_dao' : g[0] === 'none' ? u.role !== 'lanh_dao' && !u.team : u.role !== 'lanh_dao' && u.team === g[0]; });
       if (!l.length) return;
       html += '<div class="sec"><h2>' + esc(g[1]) + '</h2></div><div class="card list">' + l.map(function (u) {
-        return '<div class="row" style="align-items:center" data-u="' + u.id + '">' + av(u, true) + '<div class="body"><b>' + esc(u.name) + '</b>' + (u.active ? '' : ' <span class="tag">Ngừng</span>') + '<div class="meta">' + esc(u.title || PDT.ROLES[u.role]) + (lead ? ' · ' + esc(u.username || '') : '') + '</div></div></div>';
+        return '<div class="row" style="align-items:center" data-u="' + u.id + '">' + av(u, true) + '<div class="body"><b>' + esc(u.name) + '</b>' + (u.badge ? '<span class="tag pt">' + esc(u.badge) + '</span>' : '') + (u.active ? '' : ' <span class="tag">Ngừng</span>') + '<div class="meta">' + esc(u.title || PDT.ROLES[u.role]) + (lead ? ' · ' + esc(u.username || '') : '') + '</div></div></div>';
       }).join('') + '</div>';
     });
     var root = app.querySelector('.main'); root.innerHTML = html; bindHeader(root);
@@ -1157,6 +1168,7 @@
     var html = '<form id="uf"><div class="fld"><label>Họ và tên *</label><input class="inp" name="name" value="' + esc(u.name) + '"></div>' +
       '<div class="two"><div class="fld"><label>Email đăng nhập *</label><input class="inp" name="username" inputmode="email" value="' + esc(u.username || '') + '" autocapitalize="off" placeholder="ten@uneti.edu.vn"></div>' +
       '<div class="fld"><label>Chức danh</label><input class="inp" name="title" value="' + esc(u.title || '') + '"></div></div>' +
+      '<div class="fld"><label>Nhãn chức vụ hiện trong bảng tổng hợp</label><input class="inp" name="badge" maxlength="12" value="' + esc(u.badge || '') + '" placeholder="vd: PT 2"><div class="hint">Dùng cho Phó Trưởng phòng (PT 1, PT 2…). Để trống nếu không cần.</div></div>' +
       '<div class="two"><div class="fld"><label>Quyền</label><select class="inp" name="role">' + Object.keys(PDT.ROLES).map(function (k) { return '<option value="' + k + '"' + (u.role === k ? ' selected' : '') + '>' + PDT.ROLES[k] + '</option>'; }).join('') + '</select></div>' +
       '<div class="fld"><label>Tổ</label><select class="inp" name="team"><option value="">—</option>' + Object.keys(PDT.TEAMS).map(function (k) { return '<option value="' + k + '"' + (u.team === k ? ' selected' : '') + '>' + PDT.TEAMS[k] + '</option>'; }).join('') + '</select></div></div>' +
       '<div class="two"><div class="fld"><label>Thứ tự hiển thị</label><input class="inp" type="number" name="sort" value="' + esc(u.sort == null ? 99 : u.sort) + '"></div>' +
@@ -1167,7 +1179,7 @@
     });
     var f = ov.querySelector('#uf');
     ov.querySelector('[data-save]').onclick = function () {
-      act('saveUser', { user: { id: u.id, name: f.name.value, username: f.username.value, title: f.title.value, role: f.role.value, team: f.team.value, sort: +f.sort.value, active: f.active.value === '1' } }, 'Đã lưu')
+      act('saveUser', { user: { id: u.id, name: f.name.value, username: f.username.value, title: f.title.value, badge: f.badge.value, role: f.role.value, team: f.team.value, sort: +f.sort.value, active: f.active.value === '1' } }, 'Đã lưu')
         .then(function (r) { closeModal(); if (r.tempPassword) setTimeout(function () { ask('Đã tạo tài khoản', [{ type: 'info', html: 'Email đăng nhập: <b>' + esc(r.user.username) + '</b><br>Mật khẩu ban đầu: <b>' + esc(r.tempPassword) + '</b><br>Cán bộ sẽ được yêu cầu đổi mật khẩu ở lần đăng nhập đầu.' }], 'Đã ghi nhận'); }, 300); });
     };
     var rs = ov.querySelector('[data-reset]');
@@ -1210,7 +1222,7 @@
   function renderShell() {
     var unread = (D().notifs || []).filter(function (n) { return !n.read; }).length;
     var tabs = [['home', 'home', 'Trang chủ'], ['tasks', 'list', 'Công việc'], ['plan', 'cal', 'Kế hoạch'], ['me', 'user', 'Của tôi'], ['more', 'more', 'Thêm']];
-    app.innerHTML = '<div class="shell"><nav class="tabbar"><div class="brand"><img src="icons/icon-192.png" alt=""><div>' + esc(sett().tenPhong) + '<small>Quản lý công việc</small></div></div>' +
+    app.innerHTML = '<div class="shell"><nav class="tabbar"><div class="brand"><img src="icons/logo-uneti.png" alt="UNETI"><div>' + esc(sett().tenPhong) + '<small>Quản lý công việc</small></div></div>' +
       tabs.map(function (t) { return '<button data-tab="' + t[0] + '" class="' + (S.tab === t[0] ? 'on' : '') + '">' + ic(t[1]) + '<span>' + t[2] + '</span>' + (t[0] === 'more' && unread ? '<span class="dot">' + unread + '</span>' : '') + '</button>'; }).join('') +
       '</nav><main class="main"></main></div><button class="fab" aria-label="Thêm mới">' + ic('plus') + '</button>';
     app.querySelectorAll('[data-tab]').forEach(function (b) { b.onclick = function () { var t = b.getAttribute('data-tab'); if (t === 'tasks' && S.tab !== 'tasks') { S.filter = {}; } go(t); }; });
@@ -1235,7 +1247,7 @@
 
   /* ================= Đăng nhập ================= */
   function renderLogin() {
-    app.innerHTML = '<div class="login"><form class="card" id="lf"><img src="icons/icon-192.png" alt=""><h1>' + esc(CFG.TEN_APP || 'Công việc Phòng Đào tạo') + '</h1><p>' + esc(CFG.TEN_TRUONG || '') + '</p>' +
+    app.innerHTML = '<div class="login"><form class="card" id="lf"><div class="lg"><img src="icons/logo-uneti.png" alt="UNETI"><div><h1>' + esc(CFG.TEN_APP || 'Công việc Phòng Đào tạo') + '</h1><p>' + esc(CFG.TEN_TRUONG || '') + '</p></div></div>' +
       '<div class="fld"><label>Email</label><input class="inp" name="u" inputmode="email" autocomplete="username" autocapitalize="off" placeholder="ten@uneti.edu.vn" required></div>' +
       '<div class="fld"><label>Mật khẩu</label><input class="inp" name="p" type="password" autocomplete="current-password" required></div>' +
       '<div class="err" id="lerr"></div><button class="btn pri" type="submit">Đăng nhập</button>' +

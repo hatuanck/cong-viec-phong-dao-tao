@@ -6,12 +6,12 @@
  */
 var PDT = (function () {
   'use strict';
-  var VERSION = '1.1.0';
+  var VERSION = '1.2.0';
 
   /* ---------- Cấu trúc dữ liệu (mỗi bảng = một trang tính) ---------- */
   var SCHEMA = {
     Users: {
-      fields: ['id', 'username', 'passHash', 'salt', 'name', 'role', 'team', 'title', 'birthday', 'phone', 'email', 'active', 'mustChange', 'sort', 'createdAt'],
+      fields: ['id', 'username', 'passHash', 'salt', 'name', 'role', 'team', 'title', 'birthday', 'phone', 'email', 'active', 'mustChange', 'sort', 'createdAt', 'badge'],
       num: ['sort'], bool: ['active', 'mustChange'], json: []
     },
     Tasks: {
@@ -190,7 +190,7 @@ var PDT = (function () {
     function users() { return store.all('Users'); }
     function userById(id) { return users().filter(function (u) { return u.id === id; })[0]; }
     function pubUser(u, me) {
-      var o = { id: u.id, name: u.name, role: u.role, team: u.team, title: u.title, birthday: u.birthday, active: u.active, sort: u.sort };
+      var o = { id: u.id, name: u.name, role: u.role, team: u.team, title: u.title, badge: u.badge, birthday: u.birthday, active: u.active, sort: u.sort };
       if (isLead(me) || (me && me.id === u.id)) { o.username = u.username; o.phone = u.phone; o.email = u.email; }
       return o;
     }
@@ -473,6 +473,7 @@ var PDT = (function () {
       u.title = x.title || ''; u.phone = x.phone || ''; u.email = uname;
       if (x.birthday != null) u.birthday = x.birthday;
       u.active = x.active !== false; u.sort = x.sort == null ? 99 : Number(x.sort);
+      u.badge = String(x.badge || '').trim().slice(0, 12);
       store.put('Users', u);
       return { user: pubUser(u, me), tempPassword: temp };
     };

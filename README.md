@@ -81,6 +81,10 @@ API_URL: 'https://script.google.com/macros/s/XXXX/exec',
 
 Dán lại hai tệp `Code.gs`, `core.gs` mới vào Apps Script, chạy hàm **chuyenSangEmail** một lần, rồi **Triển khai › Quản lý các lần triển khai › Chỉnh sửa (bút chì) › Phiên bản: Phiên bản mới › Triển khai** (giữ nguyên URL).
 
+## Nâng lên phiên bản 1.2 (logo, nhãn PT)
+
+Dán lại `Code.gs`, `core.gs` mới vào Apps Script, bấm Lưu, rồi **Triển khai › Quản lý các lần triển khai › Chỉnh sửa › Phiên bản mới › Triển khai**. Trang Users tự có thêm cột `badge` (nhãn chức vụ) ở lần dùng đầu.
+
 ## Cập nhật app về sau
 
 - Sửa giao diện: tải tệp mới đè lên kho GitHub. Đổi số phiên bản trong dòng `var CACHE = 'pdt-v1.0.0'` của `sw.js` để điện thoại nhận bản mới.
