@@ -1,5 +1,5 @@
 /* Bộ nhớ đệm để app mở nhanh và mở được khi mất mạng. Đổi số phiên bản khi cập nhật app. */
-var CACHE = 'pdt-v1.9.0';
+var CACHE = 'pdt-v1.10.0';
 var FILES = ['./', 'index.html', 'styles.css', 'app.js', 'core.js', 'lunar.js', 'config.js', 'manifest.webmanifest',
   'icons/logo-uneti.png', 'icons/favicon.png', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'];
 

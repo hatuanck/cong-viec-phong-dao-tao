@@ -6,7 +6,7 @@
  */
 var PDT = (function () {
   'use strict';
-  var VERSION = '1.9.0';
+  var VERSION = '1.10.0';
 
   /* ---------- Cấu trúc dữ liệu (mỗi bảng = một trang tính) ---------- */
   var SCHEMA = {
@@ -156,11 +156,15 @@ var PDT = (function () {
   }
   function canManage(u, t) { // sửa nội dung, hủy việc
     if (!u || !t) return false;
-    return isLead(u) || t.creatorId === u.id || (isTeamLead(u) && t.team === u.team);
+    /* Người đề xuất chỉ sửa, rút đề xuất khi chưa được duyệt */
+    return isLead(u) || (t.creatorId === u.id && (t.status === 'de_xuat' || isTeamLead(u))) || (isTeamLead(u) && t.team === u.team);
   }
-  function canApprove(u, t) {
+  /* creator (không bắt buộc): người tạo việc; đề xuất của Tổ trưởng, Tổ phó do lãnh đạo Phòng duyệt */
+  function canApprove(u, t, creator) {
     if (!u || !t) return false;
+    if (t.status === 'de_xuat' && t.creatorId === u.id) return false;
     if (isLead(u)) return true;
+    if (t.status === 'de_xuat' && creator && (isTeamLead(creator) || isLead(creator))) return false;
     return isTeamLead(u) && t.team === u.team && t.assigneeId !== u.id;
   }
   function canWork(u, t) { return u && t && (t.assigneeId === u.id || canManage(u, t)); }
@@ -233,6 +237,12 @@ var PDT = (function () {
       users().forEach(function (u) { if (u.active && isTeamLead(u) && u.team === t.team && u.id !== t.assigneeId) ids.push(u.id); });
       if (!ids.length) users().forEach(function (u) { if (u.active && isLead(u)) ids.push(u.id); });
       return ids;
+    }
+    /* Người duyệt đề xuất: đề xuất của chuyên viên do Tổ trưởng, Tổ phó cùng tổ và lãnh đạo Phòng duyệt;
+       đề xuất của Tổ trưởng, Tổ phó do lãnh đạo Phòng duyệt */
+    function proposalApprovers(t) {
+      var cr = userById(t.creatorId);
+      return users().filter(function (u) { return u.active && u.id !== t.creatorId && canApprove(u, t, cr); }).map(function (u) { return u.id; });
     }
     function involved(t) { return [t.assigneeId, t.creatorId].concat(t.collaborators || []); }
     function nextCode() {
@@ -365,8 +375,8 @@ var PDT = (function () {
           log(t.id, me.id, 'create', 'Giao việc cho ' + assignee.name);
           notify([t.assigneeId].concat(t.collaborators), me.name + ' giao việc: ' + t.title + ' (hạn ' + t.dueDate.split('-').reverse().join('/') + ')', t.id, me.id, 'giao_viec');
         } else {
-          log(t.id, me.id, 'create', 'Đề xuất công việc');
-          notify(leadsOf(t.team), me.name + ' đề xuất việc: ' + t.title, t.id, me.id, 'de_xuat');
+          log(t.id, me.id, 'create', 'Đề xuất công việc' + (x.reason ? ': ' + String(x.reason).slice(0, 500) : ''));
+          notify(proposalApprovers(t), me.name + ' đề xuất việc: ' + t.title, t.id, me.id, 'de_xuat');
         }
         return { task: t };
       }
@@ -383,6 +393,11 @@ var PDT = (function () {
       if (x.team) cur.team = x.team;
       cur.updatedAt = now;
       store.put('Tasks', cur);
+      if (cur.status === 'de_xuat') {
+        log(cur.id, me.id, 'edit', 'Chỉnh sửa đề xuất');
+        if (cur.creatorId === me.id) notify(proposalApprovers(cur), me.name + ' đã chỉnh sửa đề xuất: ' + cur.title, cur.id, me.id, 'de_xuat');
+        return { task: cur };
+      }
       if (changed.indexOf('dueDate') >= 0) notify(involved(cur), 'Đổi hạn "' + cur.title + '" sang ' + cur.dueDate.split('-').reverse().join('/'), cur.id, me.id, 'doi_han');
       log(cur.id, me.id, 'edit', 'Cập nhật thông tin công việc');
       return { task: cur };
@@ -419,14 +434,14 @@ var PDT = (function () {
           }
           break;
         case 'approve':
-          if (!canApprove(me, t) || t.status !== 'cho_duyet') err('Không có quyền duyệt việc này.');
+          if (!canApprove(me, t, userById(t.creatorId)) || t.status !== 'cho_duyet') err('Không có quyền duyệt việc này.');
           t.status = 'xong'; t.doneDate = t.submittedAt || today; t.approvedBy = me.id;
           t.score = d.score != null && d.score !== '' ? Math.max(0, Math.min(100, Number(d.score))) : defaultScore(t, st);
           log(t.id, me.id, 'status', 'Duyệt hoàn thành, điểm ' + t.score + (d.note ? ': ' + d.note : ''));
           notify(involved(t), who + ' đã duyệt hoàn thành: ' + t.title + ' (' + t.score + ' điểm)', t.id, me.id, 'duyet');
           break;
         case 'return':
-          if (!canApprove(me, t) || t.status !== 'cho_duyet') err('Không có quyền trả lại việc này.');
+          if (!canApprove(me, t, userById(t.creatorId)) || t.status !== 'cho_duyet') err('Không có quyền trả lại việc này.');
           t.status = 'dang'; t.progress = Math.min(t.progress || 0, 90); t.submittedAt = '';
           log(t.id, me.id, 'status', 'Trả lại để hoàn thiện' + (d.note ? ': ' + d.note : ''));
           notify([t.assigneeId], who + ' trả lại: ' + t.title + (d.note ? ' – ' + d.note : ''), t.id, me.id, 'tra_lai');
@@ -437,17 +452,43 @@ var PDT = (function () {
           log(t.id, me.id, 'status', 'Mở lại công việc' + (d.note ? ': ' + d.note : ''));
           notify([t.assigneeId], who + ' mở lại: ' + t.title, t.id, me.id, 'tra_lai');
           break;
-        case 'accept':
+        case 'accept': /* Duyệt đề xuất: việc tự chuyển sang triển khai */
           if (t.status !== 'de_xuat') err('Việc không ở trạng thái đề xuất.');
+          if (!canApprove(me, t, userById(t.creatorId))) err('Không có quyền duyệt đề xuất này.');
           var asg = userById(d.assigneeId || t.assigneeId);
-          if (!canAssignTo(me, asg)) err('Không có quyền giao việc này.');
-          t.assigneeId = asg.id; t.status = 'chua';
+          if (!asg || !asg.active) err('Người thực hiện không hợp lệ.');
+          if (asg.id !== t.assigneeId && !canAssignTo(me, asg)) err('Không có quyền giao việc cho người này.');
+          t.assigneeId = asg.id;
+          t.collaborators = (t.collaborators || []).filter(function (id) { return id !== asg.id; });
           if (d.dueDate) t.dueDate = d.dueDate;
-          log(t.id, me.id, 'status', 'Duyệt đề xuất, giao cho ' + asg.name);
-          notify([t.creatorId, t.assigneeId].concat(t.collaborators || []), who + ' duyệt đề xuất: ' + t.title, t.id, me.id, 'giao_viec');
+          if (d.priority) t.priority = d.priority;
+          if (!t.startDate || t.startDate < today) t.startDate = today;
+          if (t.dueDate < t.startDate) err('Hạn hoàn thành phải từ hôm nay trở đi.');
+          t.status = t.startDate <= today ? 'dang' : 'chua';
+          log(t.id, me.id, 'status', 'Duyệt đề xuất, triển khai: ' + asg.name + ' thực hiện, hạn ' + t.dueDate.split('-').reverse().join('/') + (d.note ? '. Ý kiến: ' + d.note : ''));
+          notify([t.creatorId], who + ' đã duyệt đề xuất "' + t.title + '". Việc đã chuyển sang triển khai' + (asg.id !== t.creatorId ? ', giao ' + asg.name + ' thực hiện' : '') + ', hạn ' + t.dueDate.split('-').reverse().join('/') + '.', t.id, me.id, 'duyet');
+          notify([t.assigneeId].concat(t.collaborators || []).filter(function (id) { return id !== t.creatorId; }), who + ' giao việc: ' + t.title + ' (hạn ' + t.dueDate.split('-').reverse().join('/') + ')', t.id, me.id, 'giao_viec');
+          break;
+        case 'revise': /* Yêu cầu người đề xuất chỉnh sửa, đề xuất vẫn chờ duyệt */
+          if (t.status !== 'de_xuat' || !canApprove(me, t, userById(t.creatorId))) err('Không có quyền với đề xuất này.');
+          if (!String(d.note || '').trim()) err('Chưa nhập nội dung cần chỉnh sửa.');
+          log(t.id, me.id, 'status', 'Yêu cầu chỉnh sửa đề xuất: ' + d.note);
+          notify([t.creatorId], who + ' đề nghị chỉnh sửa đề xuất "' + t.title + '": ' + d.note, t.id, me.id, 'tra_lai');
+          break;
+        case 'reject':
+          if (t.status !== 'de_xuat' || !canApprove(me, t, userById(t.creatorId))) err('Không có quyền với đề xuất này.');
+          if (!String(d.note || '').trim()) err('Chưa nhập lý do không duyệt.');
+          t.status = 'huy';
+          log(t.id, me.id, 'status', 'Không duyệt đề xuất: ' + d.note);
+          notify([t.creatorId], who + ' không duyệt đề xuất "' + t.title + '": ' + d.note, t.id, me.id, 'tra_lai');
+          break;
+        case 'withdraw':
+          if (t.status !== 'de_xuat' || t.creatorId !== me.id) err('Chỉ người đề xuất rút được đề xuất chưa duyệt.');
+          t.status = 'huy';
+          log(t.id, me.id, 'status', 'Rút đề xuất' + (d.note ? ': ' + d.note : ''));
           break;
         case 'cancel':
-          if (!canManage(me, t) && !(t.status === 'de_xuat' && canApprove(me, t))) err('Không có quyền hủy việc này.');
+          if (!canManage(me, t) && !(t.status === 'de_xuat' && canApprove(me, t, userById(t.creatorId)))) err('Không có quyền hủy việc này.');
           t.status = 'huy';
           log(t.id, me.id, 'status', (d.note ? 'Hủy: ' + d.note : 'Hủy công việc'));
           notify(involved(t), who + ' đã hủy: ' + t.title, t.id, me.id, 'huy');
@@ -704,6 +745,9 @@ var PDT = (function () {
           } else if (dd < 0 && (dd === -1 || (-dd) % 3 === 0)) {
             notify(who.concat([t.creatorId]), 'Quá hạn ' + (-dd) + ' ngày: ' + t.title + ' (' + t.progress + '%)', t.id, null, 'qua_han'); n++;
           }
+        } else if (t.status === 'de_xuat' && t.createdAt) {
+          var wd = dayDiff(String(t.createdAt).slice(0, 10), today);
+          if (wd >= 2 && wd % 2 === 0) { notify(proposalApprovers(t), 'Đề xuất chờ bạn duyệt đã ' + wd + ' ngày: ' + t.title, t.id, null, 'de_xuat'); n++; }
         } else if (t.status === 'cho_duyet' && t.submittedAt) {
           var w = dayDiff(t.submittedAt, today);
           if (w >= 2 && w % 2 === 0) { notify(approversOf(t), 'Việc chờ bạn duyệt đã ' + w + ' ngày: ' + t.title, t.id, null, 'cho_duyet'); n++; }
