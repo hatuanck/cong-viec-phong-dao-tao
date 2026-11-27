@@ -69,6 +69,8 @@
     edit: '<path d="M4 20h4L19 9l-4-4L4 16zM14 6l4 4"/>',
     logout: '<path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10"/>',
     flag: '<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>',
+    clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+    alert: '<path d="M12 3 2 21h20z"/><path d="M12 10v4M12 17h.01"/>',
     inbox: '<path d="M3 13h5l1 3h6l1-3h5M5 5h14l2 8v6H3v-6z"/>',
     sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5 19 19M5 19l1.5-1.5M17.5 6.5 19 5"/>'
   };
@@ -524,6 +526,22 @@
     });
     return out.sort(function (a, b) { return a.d - b.d; });
   }
+  /* Cảnh báo của cá nhân: việc quá hạn, đến hạn, việc chờ mình duyệt */
+  function alertsHtml() {
+    var m = me(), td = today();
+    var mine = tasks().filter(function (t) { return (t.status === 'chua' || t.status === 'dang') && (t.assigneeId === m.id || (t.collaborators || []).indexOf(m.id) >= 0); });
+    var qua = mine.filter(function (t) { return t.dueDate < td; });
+    var hom = mine.filter(function (t) { return t.dueDate === td; });
+    var sap = mine.filter(function (t) { var d = diff(td, t.dueDate); return d >= 1 && d <= 2; });
+    var duyet = tasks().filter(function (t) { return (t.status === 'cho_duyet' || t.status === 'de_xuat') && PDT.canApprove(m, t); });
+    var phong = isLead() ? tasks().filter(function (t) { return eff(t) === 'qua_han'; }) : [];
+    var out = '';
+    if (qua.length) out += '<div class="al r" data-al="qua">' + ic('alert') + '<div><b>' + qua.length + ' việc của bạn đã quá hạn</b><span>' + esc(qua.slice(0, 2).map(function (t) { return t.title; }).join('; ')) + (qua.length > 2 ? '…' : '') + '</span></div></div>';
+    if (hom.length || sap.length) out += '<div class="al y" data-al="han">' + ic('clock') + '<div><b>' + (hom.length ? hom.length + ' việc đến hạn hôm nay' : '') + (hom.length && sap.length ? ', ' : '') + (sap.length ? sap.length + ' việc đến hạn trong 2 ngày tới' : '') + '</b><span>' + esc(hom.concat(sap).slice(0, 2).map(function (t) { return t.title; }).join('; ')) + '</span></div></div>';
+    if (duyet.length) out += '<div class="al b" data-al="duyet">' + ic('inbox') + '<div><b>' + duyet.length + ' việc chờ bạn duyệt</b><span>Báo hoàn thành, đề xuất của cán bộ</span></div></div>';
+    if (phong.length) out += '<div class="al g" data-al="phong">' + ic('chart') + '<div><b>Phòng có ' + phong.length + ' việc quá hạn</b><span>Bấm để xem danh sách</span></div></div>';
+    return out ? '<div class="alerts">' + out + '</div>' : '';
+  }
   function renderHome() {
     var ym = S.month || [+today().slice(0, 4), +today().slice(5, 7)];
     var r = curRange('month', ym), mt = rangeTasks(r[0], r[1]), c = statsFor(mt);
@@ -537,7 +555,7 @@
     var rows = activeUsers().map(function (u) { return personEval(u, sr[0], sr[1]); })
       .sort(function (a, b) { return (b.score == null ? -1 : b.score) - (a.score == null ? -1 : a.score) || b.giao - a.giao; });
 
-    var left = '<div class="sec"><h2>Cần chú ý</h2><button class="link" data-all>Xem tất cả</button></div>' +
+    var left = alertsHtml() + '<div class="sec"><h2>Cần chú ý</h2><button class="link" data-all>Xem tất cả</button></div>' +
       '<div class="card list">' + (att.length ? att.slice(0, 6).map(function (t) { return taskRow(t, unread); }).join('') : '<div class="empty">Không có việc cần chú ý.</div>') + '</div>' +
       (rem.length ? '<div class="sec"><h2>Nhắc riêng</h2><button class="link" data-notes>Ghi chú</button></div><div class="card list">' + rem.slice(0, 4).map(function (x) {
         return '<div class="row note" data-notes><span class="ni">' + ic(x.kind === 'sinh_nhat' ? 'cake' : x.kind === 'ky_niem' ? 'heart' : 'bell') + '</span><div class="body"><div class="ttl">' + esc(x.title) + '</div></div><div class="side"><b>' + ddmm(x.date) + '</b><span class="c-warn">' + (x.d === 0 ? 'Hôm nay' : 'Còn ' + x.d + ' ngày') + '</span></div></div>';
@@ -557,6 +575,14 @@
     app.querySelector('.main').innerHTML = header('Trang chủ', { logo: true }) + '<div class="cols"><div>' + left + '</div><div>' + right + '</div></div>';
     var root = app.querySelector('.main');
     bindHeader(root); bindRows(root);
+    root.querySelectorAll('[data-al]').forEach(function (el) {
+      el.onclick = function () {
+        var k = el.getAttribute('data-al');
+        if (k === 'duyet') return go('more', 'review');
+        S.filter = k === 'phong' ? {} : { person: me().id };
+        S.taskChip = (k === 'qua' || k === 'phong') ? 'qua_han' : 'open'; S.taskView = 'list'; go('tasks');
+      };
+    });
     root.querySelector('[data-all]').onclick = function () { S.taskChip = isLead() ? 'open' : 'mine'; go('tasks'); };
     root.querySelector('[data-eval]').onclick = function () { go('more', 'eval'); };
     root.querySelectorAll('[data-notes]').forEach(function (el) { el.onclick = function () { S.meTab = 'notes'; go('me'); }; });
@@ -757,7 +783,7 @@
         return '<div class="ev">' + ic('clip') + '<a href="' + esc(e.url) + '" target="_blank" rel="noopener">' + esc(e.name) + '</a><span class="small muted">' + esc(by ? initials(by.name) : '') + ' ' + timeAgo(e.at) + '</span>' +
           ((e.by === m.id || canMan) ? '<button class="iconbtn" data-rmev="' + e.id + '" aria-label="Gỡ">' + ic('trash') + '</button>' : '') + '</div>';
       }).join('') : '<div class="small muted mt">Chưa có minh chứng.</div>') +
-      '<input type="file" id="evfile" hidden></div>';
+      '<input type="file" id="evfile" multiple hidden></div>';
     html += '<div class="dh"><b>Trao đổi và lịch sử</b><div class="logs mt">' + (logs || []).map(function (l) {
       var lu = user(l.userId);
       return '<div class="log' + (l.kind === 'comment' ? ' c' : '') + '">' + av(lu) + '<div class="lb"><b>' + esc(lu ? lu.name : '') + '</b> <span class="lt">' + timeAgo(l.at) + '</span>' +
@@ -809,7 +835,7 @@
     };
     var atb = ov.querySelector('[data-attfile]'), atf = ov.querySelector('#attfile');
     if (atb) atb.onclick = function () { atf.click(); };
-    if (atf) atf.onchange = function () { uploadFiles(t.id, 'addAttachment', atf.files).then(reload); };
+    if (atf) atf.onchange = function () { uploadFiles(t.id, 'attachment', atf.files).then(reload); };
     ov.querySelectorAll('[data-rmatt]').forEach(function (b) {
       b.onclick = function () { confirmBox('Gỡ tài liệu', 'Gỡ tài liệu này khỏi công việc?', 'Gỡ').then(function (ok) { if (ok) act('removeAttachment', { taskId: t.id, id: b.getAttribute('data-rmatt') }, 'Đã gỡ').then(reload); }); };
     });
@@ -820,14 +846,7 @@
     };
     var af = ov.querySelector('[data-addfile]'), fi = ov.querySelector('#evfile');
     if (af) af.onclick = function () { fi.click(); };
-    if (fi) fi.onchange = function () {
-      var f = fi.files[0]; if (!f) return;
-      if (f.size > 8 * 1024 * 1024) { toast('Tệp lớn hơn 8 MB, hãy dán link Drive.'); return; }
-      toast('Đang tải tệp lên…');
-      var rd = new FileReader();
-      rd.onload = function () { act('addEvidence', { taskId: t.id, name: f.name, mime: f.type, base64: String(rd.result).split(',')[1] }, 'Đã tải minh chứng').then(reload); };
-      rd.readAsDataURL(f);
-    };
+    if (fi) fi.onchange = function () { uploadFiles(t.id, 'evidence', fi.files).then(reload); };
     ov.querySelectorAll('[data-rmev]').forEach(function (b) {
       b.onclick = function () { confirmBox('Gỡ minh chứng', 'Gỡ minh chứng này khỏi công việc?', 'Gỡ').then(function (ok) { if (ok) { var eid = b.getAttribute('data-rmev'); var p = act('removeEvidence', { taskId: t.id, id: eid }, 'Đã gỡ', function (d) { var k = d.tasks.filter(function (z) { return z.id === t.id; })[0], old = k.evidence; k.evidence = (old || []).filter(function (z) { return z.id !== eid; }); return function () { k.evidence = old; }; }); draw(logs); p.then(reload).catch(function () { draw(logs); }); } }); };
     });
@@ -841,19 +860,36 @@
     };
   }
 
-  /* Tải lần lượt nhiều tệp lên Drive (mỗi tệp tối đa 8 MB) */
+  /* Tải lần lượt nhiều tệp lên Drive: tệp đến 4 MB gửi một lần; tệp lớn (tới 50 MB) gửi từng phần 4 MB */
+  var MAX_MB = 50, SMALL = 4 * 1024 * 1024;
   function fileB64(f) { return new Promise(function (res, rej) { var rd = new FileReader(); rd.onload = function () { res(String(rd.result).split(',')[1]); }; rd.onerror = function () { rej(new Error('Không đọc được tệp ' + f.name)); }; rd.readAsDataURL(f); }); }
-  function uploadFiles(taskId, action, files) {
+  function uploadOne(taskId, target, f, label) {
+    if (f.size <= SMALL) {
+      return fileB64(f).then(function (b64) { return api(target === 'attachment' ? 'addAttachment' : 'addEvidence', { taskId: taskId, name: f.name, mime: f.type, base64: b64 }); });
+    }
+    return api('uploadStart', { taskId: taskId, target: target, name: f.name, mime: f.type || 'application/octet-stream', size: f.size }).then(function (s) {
+      var off = 0;
+      function next() {
+        var end = Math.min(off + s.chunk, f.size), last = end >= f.size;
+        toast(label + ': ' + Math.round(off / f.size * 100) + '%');
+        return fileB64(f.slice(off, end)).then(function (b64) { return api('uploadChunk', { uploadId: s.uploadId, offset: off, data: b64, last: last }); })
+          .then(function (r) { if (r.done) return r; off = end; return next(); });
+      }
+      return next();
+    });
+  }
+  function uploadFiles(taskId, target, files) {
     var list = Array.prototype.slice.call(files || []), ok = 0, big = [];
-    list = list.filter(function (f) { if (f.size > 8 * 1024 * 1024) { big.push(f.name); return false; } return true; });
-    if (big.length) toast('Bỏ qua tệp lớn hơn 8 MB (hãy dán link Drive): ' + big.join(', '));
+    list = list.filter(function (f) { if (f.size > MAX_MB * 1024 * 1024) { big.push(f.name); return false; } return true; });
+    if (big.length) toast('Bỏ qua tệp lớn hơn ' + MAX_MB + ' MB (hãy dán link Drive): ' + big.join(', '));
     if (!list.length) return Promise.resolve(0);
     inflight++;
     return list.reduce(function (p, f, i) {
       return p.then(function () {
-        toast('Đang tải tệp ' + (i + 1) + '/' + list.length + ': ' + f.name);
-        return fileB64(f).then(function (b64) { return api(action, { taskId: taskId, name: f.name, mime: f.type, base64: b64 }); })
-          .then(function (r) { ok++; merge(action, {}, r); render(); })
+        var label = 'Đang tải ' + (list.length > 1 ? (i + 1) + '/' + list.length + ' ' : '') + f.name;
+        toast(label);
+        return uploadOne(taskId, target, f, label)
+          .then(function (r) { ok++; merge('upload', {}, r); render(); })
           .catch(function (e) { toast(f.name + ': ' + e.message); });
       });
     }, Promise.resolve()).then(function () {
@@ -896,7 +932,7 @@
       (isNew ? '<div class="fld"><label>Tài liệu kèm theo</label><div id="attlist"></div><div class="btns">' +
         (DEMO ? '' : '<button type="button" class="btn sm" id="attpick">' + ic('clip') + 'Đính kèm tệp</button>') +
         '<button type="button" class="btn sm" id="attlinkf">' + ic('link') + 'Dán link</button></div>' +
-        '<input type="file" id="attin" multiple hidden><div class="hint">Công văn, biểu mẫu, dữ liệu gốc… Mỗi tệp tối đa 8 MB; tệp lớn hơn hãy dán link Google Drive.</div></div>' : '') +
+        '<input type="file" id="attin" multiple hidden><div class="hint">Công văn, biểu mẫu, dữ liệu gốc… Mỗi tệp tối đa 50 MB; tệp lớn hơn hãy dán link Google Drive.</div></div>' : '') +
       '<div class="fld"><label>Thuộc kế hoạch, nhiệm vụ trọng tâm</label><select class="inp" name="planItem">' + planOptions().map(function (o) { return '<option value="' + esc(o[0]) + '"' + (o[0] === t.planItem ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select></div>' +
       '</form>';
     var ov = openModal(isNew ? (propose ? 'Đề xuất công việc' : 'Giao việc mới') : 'Sửa công việc', html, { foot: '<button class="btn" data-x>Hủy</button><button class="btn pri" data-save>' + (isNew ? (propose ? 'Gửi đề xuất' : 'Giao việc') : 'Lưu') + '</button>' });
@@ -913,7 +949,7 @@
     var ap = ov.querySelector('#attpick'), ai = ov.querySelector('#attin'), alf = ov.querySelector('#attlinkf');
     if (ap) ap.onclick = function () { ai.click(); };
     if (ai) ai.onchange = function () {
-      Array.prototype.slice.call(ai.files).forEach(function (fl) { if (fl.size > 8 * 1024 * 1024) toast(fl.name + ' lớn hơn 8 MB, hãy dán link Drive.'); else pendFiles.push(fl); });
+      Array.prototype.slice.call(ai.files).forEach(function (fl) { if (fl.size > MAX_MB * 1024 * 1024) toast(fl.name + ' lớn hơn ' + MAX_MB + ' MB, hãy dán link Drive.'); else pendFiles.push(fl); });
       ai.value = ''; drawAtt();
     };
     if (alf) alf.onclick = function () {
@@ -948,7 +984,7 @@
       closeModal();
       var files = pendFiles.slice();
       act('saveTask', { task: x }, isNew ? (propose ? 'Đã gửi đề xuất' : 'Đã giao việc') : 'Đã lưu', local).then(function (r) {
-        if (files.length && r.task) uploadFiles(r.task.id, 'addAttachment', files);
+        if (files.length && r.task) uploadFiles(r.task.id, 'attachment', files);
         if (opts.after) opts.after(r.task);
       }).catch(function () {
         if (isNew) setTimeout(function () { openTaskForm(null, Object.assign({}, opts, { draft: x })); }, 300);
@@ -1303,15 +1339,47 @@
         .catch(function (e) { toast(e.message); return changePass(force); });
     });
   }
+  var NK = {
+    giao_viec: ['Việc mới', 'send', '#2f6fdb'], de_xuat: ['Đề xuất', 'send', '#7b55c7'], sap_han: ['Sắp đến hạn', 'clock', '#d08a17'],
+    qua_han: ['Quá hạn', 'alert', '#d9433b'], cho_duyet: ['Chờ duyệt', 'inbox', '#d08a17'], duyet: ['Đã duyệt', 'check', '#1f8a5b'],
+    tra_lai: ['Trả lại', 'left', '#d0731a'], trao_doi: ['Trao đổi', 'mega', '#5b6680'], doi_han: ['Đổi hạn', 'cal', '#2f6fdb'],
+    huy: ['Đã hủy', 'x', '#8a93a3'], nhan_su: ['Tài khoản', 'users', '#005474'], he_thong: ['Hệ thống', 'bell', '#005474']
+  };
+  function nkind(n) {
+    if (n.kind && NK[n.kind]) return n.kind;
+    var t = n.text || '';
+    if (/Quá hạn/.test(t)) return 'qua_han';
+    if (/đến hạn/.test(t)) return 'sap_han';
+    if (/đề xuất việc/.test(t)) return 'de_xuat';
+    if (/giao việc|duyệt đề xuất/.test(t)) return 'giao_viec';
+    if (/báo hoàn thành|chờ bạn duyệt/.test(t)) return 'cho_duyet';
+    if (/đã duyệt/.test(t)) return 'duyet';
+    if (/trả lại|mở lại/.test(t)) return 'tra_lai';
+    if (/trao đổi/.test(t)) return 'trao_doi';
+    if (/Đổi hạn/.test(t)) return 'doi_han';
+    if (/hủy/.test(t)) return 'huy';
+    if (/đăng ký|Chào mừng/.test(t)) return 'nhan_su';
+    return 'he_thong';
+  }
+  var NGROUP = { all: null, unread: null, moi: ['giao_viec', 'de_xuat'], han: ['sap_han', 'qua_han', 'doi_han'], duyet: ['cho_duyet', 'duyet', 'tra_lai'], traodoi: ['trao_doi'] };
   function renderNotifs() {
-    var list = D().notifs || [];
+    var all = D().notifs || [], g = S.nChip || 'all';
+    var list = all.filter(function (n) { if (g === 'unread') return !n.read; if (!NGROUP[g]) return true; return NGROUP[g].indexOf(nkind(n)) >= 0; });
+    var cnt = function (k) { return all.filter(function (n) { return !n.read && (!NGROUP[k] || NGROUP[k].indexOf(nkind(n)) >= 0); }).length; };
+    var chips = [['all', 'Tất cả'], ['unread', 'Chưa đọc'], ['moi', 'Việc mới'], ['han', 'Hạn, quá hạn'], ['duyet', 'Duyệt'], ['traodoi', 'Trao đổi']];
     var html = header('Thông báo', { back: true, noRefresh: true }) +
-      (list.some(function (n) { return !n.read; }) ? '<div class="bar"><button class="btn sm" id="readall">' + ic('check') + 'Đánh dấu đã đọc tất cả</button></div>' : '') +
+      '<div class="chips">' + chips.map(function (c) { var k = c[0] === 'all' ? 0 : cnt(c[0] === 'unread' ? 'all' : c[0]); return '<button class="chip' + (g === c[0] ? ' on' : '') + '" data-nc2="' + c[0] + '">' + c[1] + (k ? ' <b class="nb">' + k + '</b>' : '') + '</button>'; }).join('') + '</div>' +
+      (all.some(function (n) { return !n.read; }) ? '<div class="bar mt"><button class="btn sm" id="readall">' + ic('check') + 'Đánh dấu đã đọc tất cả</button></div>' : '<div class="mt"></div>') +
       '<div class="card list">' + (list.length ? list.map(function (n) {
-        return '<div class="row" data-n="' + n.id + '" data-t="' + esc(n.taskId) + '"><span class="bullet' + (n.read ? '' : ' new') + '"></span><div class="body"><div style="' + (n.read ? '' : 'font-weight:600') + '">' + esc(n.text) + '</div><div class="meta">' + timeAgo(n.at) + '</div></div></div>';
-      }).join('') : '<div class="empty">Chưa có thông báo.</div>') + '</div>' +
-      '<div class="foot">Thông báo được cập nhật mỗi ' + (CFG.LAM_MOI_GIAY || 60) + ' giây khi app đang mở.</div>';
+        var k = nkind(n), m = NK[k];
+        return '<div class="row nrow' + (n.read ? '' : ' unread') + '" data-n="' + n.id + '" data-t="' + esc(n.taskId) + '">' +
+          '<span class="nic" style="background:' + m[2] + '1f;color:' + m[2] + '">' + ic(m[1]) + '</span>' +
+          '<div class="body"><div class="ntx">' + esc(n.text) + '</div><div class="meta"><span class="ntag" style="color:' + m[2] + '">' + m[0] + '</span><span>· ' + timeAgo(n.at) + '</span></div></div>' +
+          (n.read ? '' : '<span class="bullet new" style="margin-top:6px"></span>') + '</div>';
+      }).join('') : '<div class="empty">Không có thông báo.</div>') + '</div>' +
+      '<div class="foot">Máy chủ tự nhắc việc sắp đến hạn (còn 2 ngày, 1 ngày, hôm nay) và cảnh báo việc quá hạn mỗi sáng.</div>';
     var root = app.querySelector('.main'); root.innerHTML = html; bindHeader(root);
+    root.querySelectorAll('[data-nc2]').forEach(function (b) { b.onclick = function () { S.nChip = b.getAttribute('data-nc2'); render(); }; });
     var ra = root.querySelector('#readall'); if (ra) ra.onclick = function () { act('readNotifs', {}, 'Đã đọc tất cả', function (d) { var was = d.notifs.filter(function (n) { return !n.read; }); was.forEach(function (n) { n.read = true; }); return function () { was.forEach(function (n) { n.read = false; }); }; }).catch(function () { }); };
     root.querySelectorAll('[data-n]').forEach(function (el) {
       el.onclick = function () {

@@ -6,7 +6,7 @@
  */
 var PDT = (function () {
   'use strict';
-  var VERSION = '1.8.0';
+  var VERSION = '1.9.0';
 
   /* ---------- Cấu trúc dữ liệu (mỗi bảng = một trang tính) ---------- */
   var SCHEMA = {
@@ -27,7 +27,7 @@ var PDT = (function () {
       fields: ['id', 'kind', 'year', 'month', 'status', 'goal', 'items', 'createdBy', 'updatedAt'],
       num: [], bool: [], json: ['items']
     },
-    Notifs: { fields: ['id', 'userId', 'text', 'taskId', 'read', 'at'], num: [], bool: ['read'], json: [] },
+    Notifs: { fields: ['id', 'userId', 'text', 'taskId', 'read', 'at', 'kind'], num: [], bool: ['read'], json: [] },
     Devices: { fields: ['id', 'userId', 'token', 'ua', 'at'], num: [], bool: [], json: [] },
     Settings: { fields: ['id', 'value'], num: [], bool: [], json: ['value'] }
   };
@@ -179,7 +179,7 @@ var PDT = (function () {
     function err(m) { var e = new Error(m); e.userError = true; throw e; }
     function settings() {
       var o = clone(DEFAULT_SETTINGS);
-      store.all('Settings').forEach(function (r) { if (r.id !== 'secret' && r.id.indexOf('seq_') !== 0) o[r.id] = r.value; });
+      store.all('Settings').forEach(function (r) { if (r.id !== 'secret' && r.id !== 'nhacCuoi' && r.id.indexOf('seq_') !== 0) o[r.id] = r.value; });
       return o;
     }
     function getSetting(k) { var r = store.all('Settings').filter(function (x) { return x.id === k; })[0]; return r ? r.value : null; }
@@ -198,12 +198,13 @@ var PDT = (function () {
     }
     function task(id) { var t = store.all('Tasks').filter(function (x) { return x.id === id; })[0]; if (!t) err('Không tìm thấy công việc.'); return t; }
     function log(taskId, userId, kind, text) { store.put('Logs', { id: env.uuid(), taskId: taskId, userId: userId, kind: kind, text: text, at: env.nowIso() }); }
-    function notify(ids, text, taskId, exceptId) {
+    /* kind: giao_viec, de_xuat, sap_han, qua_han, cho_duyet, duyet, tra_lai, trao_doi, doi_han, huy, nhan_su, he_thong */
+    function notify(ids, text, taskId, exceptId, kind) {
       var seen = {};
       ids.forEach(function (id) {
         if (!id || id === exceptId || seen[id]) return; seen[id] = 1;
-        store.put('Notifs', { id: env.uuid(), userId: id, text: text, taskId: taskId || '', read: false, at: env.nowIso() });
-        pushQueue.push({ userId: id, text: text, taskId: taskId || '' });
+        store.put('Notifs', { id: env.uuid(), userId: id, text: text, taskId: taskId || '', read: false, at: env.nowIso(), kind: kind || '' });
+        pushQueue.push({ userId: id, text: text, taskId: taskId || '', kind: kind || '' });
       });
     }
     /* Gửi thông báo đẩy (Firebase) tới điện thoại, máy tính đã đăng ký của người nhận */
@@ -213,7 +214,7 @@ var PDT = (function () {
       var devs = store.all('Devices'), msgs = [];
       pushQueue.forEach(function (q) {
         devs.forEach(function (d) {
-          if (d.userId === q.userId) msgs.push({ token: d.token, title: 'Công việc Phòng Đào tạo', body: q.text, taskId: q.taskId });
+          if (d.userId === q.userId) msgs.push({ token: d.token, title: KIND_TITLE[q.kind] || 'Công việc Phòng Đào tạo', body: q.text, taskId: q.taskId });
         });
       });
       pushQueue = [];
@@ -281,7 +282,7 @@ var PDT = (function () {
         sort: 99, badge: '', createdAt: env.nowIso() };
       store.put('Users', u);
       notify(users().filter(function (x) { return x.active && isLead(x); }).map(function (x) { return x.id; }),
-        name + ' (' + mail + ') đăng ký tài khoản, chờ duyệt', '', u.id);
+        name + ' (' + mail + ') đăng ký tài khoản, chờ duyệt', '', u.id, 'nhan_su');
       return { ok: 1 };
     };
     A.approveUser = function (d, me) {
@@ -293,7 +294,7 @@ var PDT = (function () {
       if (d.title != null) u.title = String(d.title || '');
       if (d.badge != null) u.badge = String(d.badge || '').trim().slice(0, 12);
       store.put('Users', u);
-      notify([u.id], 'Chào mừng ' + u.name + '. Tài khoản đã được duyệt.', '', me.id);
+      notify([u.id], 'Chào mừng ' + u.name + '. Tài khoản đã được duyệt.', '', me.id, 'nhan_su');
       return { user: pubUser(u, me) };
     };
     A.rejectUser = function (d, me) {
@@ -362,10 +363,10 @@ var PDT = (function () {
         store.put('Tasks', t);
         if (direct) {
           log(t.id, me.id, 'create', 'Giao việc cho ' + assignee.name);
-          notify([t.assigneeId].concat(t.collaborators), me.name + ' giao việc: ' + t.title, t.id, me.id);
+          notify([t.assigneeId].concat(t.collaborators), me.name + ' giao việc: ' + t.title + ' (hạn ' + t.dueDate.split('-').reverse().join('/') + ')', t.id, me.id, 'giao_viec');
         } else {
           log(t.id, me.id, 'create', 'Đề xuất công việc');
-          notify(leadsOf(t.team), me.name + ' đề xuất việc: ' + t.title, t.id, me.id);
+          notify(leadsOf(t.team), me.name + ' đề xuất việc: ' + t.title, t.id, me.id, 'de_xuat');
         }
         return { task: t };
       }
@@ -376,13 +377,13 @@ var PDT = (function () {
       fields.forEach(function (f) { if (x[f] != null && x[f] !== cur[f]) { cur[f] = x[f]; changed.push(f); } });
       if (assignee.id !== cur.assigneeId) {
         cur.assigneeId = assignee.id; changed.push('assignee');
-        notify([assignee.id], me.name + ' giao việc: ' + cur.title, cur.id, me.id);
+        notify([assignee.id], me.name + ' giao việc: ' + cur.title, cur.id, me.id, 'giao_viec');
       }
       if (x.collaborators) cur.collaborators = x.collaborators.filter(function (id) { return id !== cur.assigneeId; });
       if (x.team) cur.team = x.team;
       cur.updatedAt = now;
       store.put('Tasks', cur);
-      if (changed.indexOf('dueDate') >= 0) notify(involved(cur), 'Đổi hạn "' + cur.title + '" sang ' + cur.dueDate.split('-').reverse().join('/'), cur.id, me.id);
+      if (changed.indexOf('dueDate') >= 0) notify(involved(cur), 'Đổi hạn "' + cur.title + '" sang ' + cur.dueDate.split('-').reverse().join('/'), cur.id, me.id, 'doi_han');
       log(cur.id, me.id, 'edit', 'Cập nhật thông tin công việc');
       return { task: cur };
     };
@@ -414,7 +415,7 @@ var PDT = (function () {
           } else {
             t.status = 'cho_duyet';
             log(t.id, me.id, 'status', 'Báo hoàn thành, chờ duyệt' + (d.note ? ': ' + d.note : ''));
-            notify(approvers, who + ' báo hoàn thành: ' + t.title, t.id, me.id);
+            notify(approvers, who + ' báo hoàn thành: ' + t.title, t.id, me.id, 'cho_duyet');
           }
           break;
         case 'approve':
@@ -422,19 +423,19 @@ var PDT = (function () {
           t.status = 'xong'; t.doneDate = t.submittedAt || today; t.approvedBy = me.id;
           t.score = d.score != null && d.score !== '' ? Math.max(0, Math.min(100, Number(d.score))) : defaultScore(t, st);
           log(t.id, me.id, 'status', 'Duyệt hoàn thành, điểm ' + t.score + (d.note ? ': ' + d.note : ''));
-          notify(involved(t), who + ' đã duyệt hoàn thành: ' + t.title + ' (' + t.score + ' điểm)', t.id, me.id);
+          notify(involved(t), who + ' đã duyệt hoàn thành: ' + t.title + ' (' + t.score + ' điểm)', t.id, me.id, 'duyet');
           break;
         case 'return':
           if (!canApprove(me, t) || t.status !== 'cho_duyet') err('Không có quyền trả lại việc này.');
           t.status = 'dang'; t.progress = Math.min(t.progress || 0, 90); t.submittedAt = '';
           log(t.id, me.id, 'status', 'Trả lại để hoàn thiện' + (d.note ? ': ' + d.note : ''));
-          notify([t.assigneeId], who + ' trả lại: ' + t.title + (d.note ? ' – ' + d.note : ''), t.id, me.id);
+          notify([t.assigneeId], who + ' trả lại: ' + t.title + (d.note ? ' – ' + d.note : ''), t.id, me.id, 'tra_lai');
           break;
         case 'reopen':
           if (!canApprove(me, t) || t.status !== 'xong') err('Không thể mở lại.');
           t.status = 'dang'; t.doneDate = ''; t.submittedAt = ''; t.score = null; t.progress = 90;
           log(t.id, me.id, 'status', 'Mở lại công việc' + (d.note ? ': ' + d.note : ''));
-          notify([t.assigneeId], who + ' mở lại: ' + t.title, t.id, me.id);
+          notify([t.assigneeId], who + ' mở lại: ' + t.title, t.id, me.id, 'tra_lai');
           break;
         case 'accept':
           if (t.status !== 'de_xuat') err('Việc không ở trạng thái đề xuất.');
@@ -443,13 +444,13 @@ var PDT = (function () {
           t.assigneeId = asg.id; t.status = 'chua';
           if (d.dueDate) t.dueDate = d.dueDate;
           log(t.id, me.id, 'status', 'Duyệt đề xuất, giao cho ' + asg.name);
-          notify([t.creatorId, t.assigneeId].concat(t.collaborators || []), who + ' duyệt đề xuất: ' + t.title, t.id, me.id);
+          notify([t.creatorId, t.assigneeId].concat(t.collaborators || []), who + ' duyệt đề xuất: ' + t.title, t.id, me.id, 'giao_viec');
           break;
         case 'cancel':
           if (!canManage(me, t) && !(t.status === 'de_xuat' && canApprove(me, t))) err('Không có quyền hủy việc này.');
           t.status = 'huy';
           log(t.id, me.id, 'status', (d.note ? 'Hủy: ' + d.note : 'Hủy công việc'));
-          notify(involved(t), who + ' đã hủy: ' + t.title, t.id, me.id);
+          notify(involved(t), who + ' đã hủy: ' + t.title, t.id, me.id, 'huy');
           break;
         case 'restore':
           if (!canManage(me, t) || t.status !== 'huy') err('Không thể khôi phục.');
@@ -467,7 +468,7 @@ var PDT = (function () {
       var t = task(d.taskId), text = String(d.text || '').trim();
       if (!text) err('Chưa nhập nội dung.');
       log(t.id, me.id, 'comment', text.slice(0, 2000));
-      notify(involved(t).concat(approversOf(t)), me.name + ' trao đổi ở "' + t.title + '": ' + text.slice(0, 80), t.id, me.id);
+      notify(involved(t).concat(approversOf(t)), me.name + ' trao đổi ở "' + t.title + '": ' + text.slice(0, 80), t.id, me.id, 'trao_doi');
       return A.taskDetail({ id: t.id });
     };
 
@@ -645,9 +646,74 @@ var PDT = (function () {
       if (!env.push) err('Máy chủ chưa cấu hình Firebase.');
       var devs = store.all('Devices').filter(function (x) { return x.userId === me.id; });
       if (!devs.length) err('Thiết bị này chưa đăng ký nhận thông báo. Hãy bật Thông báo trên thiết bị trước.');
-      pushQueue.push({ userId: me.id, text: 'Thông báo thử: thiết bị đã nhận được thông báo từ máy chủ.', taskId: '' });
+      pushQueue.push({ userId: me.id, text: 'Thông báo thử: thiết bị đã nhận được thông báo từ máy chủ.', taskId: '', kind: 'he_thong' });
       return { devices: devs.length };
     };
+
+    /* Ghi tệp đã tải vào việc: tài liệu kèm theo hoặc minh chứng */
+    function canFile(me, t, target) {
+      if (target === 'attachment') return canManage(me, t);
+      return canWork(me, t) || (t.collaborators || []).indexOf(me.id) >= 0;
+    }
+    function addFileEntry(t, target, name, url, me) {
+      var e = { id: env.uuid(), name: name || url, url: url, by: me.id, at: env.nowIso() };
+      if (target === 'attachment') t.attachments = (t.attachments || []).concat([e]); else t.evidence = (t.evidence || []).concat([e]);
+      t.updatedAt = env.nowIso();
+      store.put('Tasks', t);
+      log(t.id, me.id, 'evidence', (target === 'attachment' ? 'Thêm tài liệu kèm theo: ' : 'Thêm minh chứng: ') + (name || url));
+    }
+    var MAX_FILE = 50 * 1024 * 1024, CHUNK = 4 * 1024 * 1024;
+    /* Tải tệp lớn: mở phiên tải lên Drive, gửi từng phần 4 MB */
+    A.uploadStart = function (d, me) {
+      if (!env.uploadStart) err('Bản dùng thử chưa tải tệp lên được; hãy dán đường dẫn.');
+      var t = task(d.taskId), target = d.target === 'attachment' ? 'attachment' : 'evidence';
+      if (!canFile(me, t, target)) err('Không có quyền thêm tệp vào việc này.');
+      var size = Number(d.size) || 0, name = String(d.name || 'tep').slice(0, 200), mime = d.mime || 'application/octet-stream';
+      if (size <= 0) err('Tệp rỗng.');
+      if (size > MAX_FILE) err('Tệp lớn hơn 50 MB; hãy đưa lên Google Drive rồi dán link.');
+      var session = env.uploadStart(name, mime, size, t.code);
+      var id = env.uuid();
+      env.cache.put('up_' + id, JSON.stringify({ u: me.id, t: t.id, g: target, n: name, m: mime, z: size, s: session }));
+      return { uploadId: id, chunk: CHUNK };
+    };
+    A.uploadChunk = function (d, me) {
+      var raw = env.cache && env.cache.get('up_' + d.uploadId);
+      if (!raw) err('Phiên tải tệp đã hết hạn, hãy tải lại.');
+      var m = JSON.parse(raw);
+      if (m.u !== me.id) err('Phiên tải tệp không hợp lệ.');
+      var r = env.uploadChunk(m.s, Number(d.offset) || 0, d.data, m.z, m.m);
+      if (!r.done) return { done: false };
+      env.cache.remove('up_' + d.uploadId);
+      var t = task(m.t);
+      addFileEntry(t, m.g, m.n, r.url, me);
+      return { done: true, task: t };
+    };
+
+    /* Nhắc hạn hằng ngày: sắp đến hạn (còn 2, 1, 0 ngày), quá hạn (ngày đầu và mỗi 3 ngày), chờ duyệt lâu */
+    function remind(today) {
+      today = today || env.today();
+      if (getSetting('nhacCuoi') === today) return { skipped: true, count: 0 };
+      var n = 0;
+      store.all('Tasks').forEach(function (t) {
+        if (!t.dueDate) return;
+        var who = [t.assigneeId].concat(t.collaborators || []);
+        if (t.status === 'chua' || t.status === 'dang') {
+          var dd = dayDiff(today, t.dueDate);
+          if (dd >= 0 && dd <= 2) {
+            notify(who, (dd === 0 ? 'Hôm nay đến hạn: ' : dd === 1 ? 'Ngày mai đến hạn: ' : 'Còn 2 ngày đến hạn: ') + t.title + ' (' + t.progress + '%)', t.id, null, 'sap_han'); n++;
+          } else if (dd < 0 && (dd === -1 || (-dd) % 3 === 0)) {
+            notify(who.concat([t.creatorId]), 'Quá hạn ' + (-dd) + ' ngày: ' + t.title + ' (' + t.progress + '%)', t.id, null, 'qua_han'); n++;
+          }
+        } else if (t.status === 'cho_duyet' && t.submittedAt) {
+          var w = dayDiff(t.submittedAt, today);
+          if (w >= 2 && w % 2 === 0) { notify(approversOf(t), 'Việc chờ bạn duyệt đã ' + w + ' ngày: ' + t.title, t.id, null, 'cho_duyet'); n++; }
+        }
+      });
+      setSetting('nhacCuoi', today);
+      try { flushPush(); } catch (e) { }
+      if (store.flush) store.flush();
+      return { skipped: false, count: n };
+    }
 
     var PUBLIC = { login: 1, register: 1 };
     function handle(req) {
@@ -693,8 +759,11 @@ var PDT = (function () {
       return created;
     }
 
-    return { handle: handle, seed: seed, actions: A };
+    return { handle: handle, seed: seed, remind: remind, actions: A };
   }
+
+  var KIND_TITLE = { giao_viec: 'Việc mới', de_xuat: 'Đề xuất việc', sap_han: 'Sắp đến hạn', qua_han: 'Cảnh báo quá hạn', cho_duyet: 'Chờ duyệt',
+    duyet: 'Đã duyệt', tra_lai: 'Bị trả lại', trao_doi: 'Trao đổi', doi_han: 'Đổi hạn', huy: 'Việc bị hủy', nhan_su: 'Tài khoản', he_thong: 'Công việc Phòng Đào tạo' };
 
   var NHIEM_VU_2026 = [
     { id: 'nv111', code: '1.1.1', team: 'to1', deadline: '2027-02-28', title: 'Mở các CTĐT lĩnh vực kỹ thuật; chuẩn bị điều kiện mở CTĐT Ngôn ngữ Trung Quốc',
@@ -720,7 +789,7 @@ var PDT = (function () {
   return {
     VERSION: VERSION, SCHEMA: SCHEMA, ROLES: ROLES, TEAMS: TEAMS, STATUS: STATUS, PRIORITY: PRIORITY,
     DEFAULT_SETTINGS: DEFAULT_SETTINGS, NHIEM_VU_2026: NHIEM_VU_2026,
-    DOMAIN: DOMAIN, normEmail: normEmail, validEmail: validEmail,
+    KIND_TITLE: KIND_TITLE, DOMAIN: DOMAIN, normEmail: normEmail, validEmail: validEmail,
     sha256: sha256, hashPass: hashPass, toRow: toRow, fromRow: fromRow, isoDate: isoDate, dayDiff: dayDiff,
     isLead: isLead, isTeamLead: isTeamLead, canAssignTo: canAssignTo, canManage: canManage, canApprove: canApprove,
     canWork: canWork, effStatus: effStatus, defaultScore: defaultScore, createCore: createCore
