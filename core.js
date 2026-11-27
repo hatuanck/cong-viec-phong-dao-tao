@@ -6,7 +6,7 @@
  */
 var PDT = (function () {
   'use strict';
-  var VERSION = '1.10.0';
+  var VERSION = '1.11.0';
 
   /* ---------- Cấu trúc dữ liệu (mỗi bảng = một trang tính) ---------- */
   var SCHEMA = {
@@ -167,6 +167,19 @@ var PDT = (function () {
     if (t.status === 'de_xuat' && creator && (isTeamLead(creator) || isLead(creator))) return false;
     return isTeamLead(u) && t.team === u.team && t.assigneeId !== u.id;
   }
+  /* Quyền xem chi tiết một việc: lãnh đạo Phòng xem tất cả; Tổ trưởng, Tổ phó xem việc của tổ mình;
+     cán bộ xem việc mình phụ trách, phối hợp, đã giao, đã đề xuất hoặc phải duyệt.
+     creator, assignee (không bắt buộc): người tạo, người phụ trách của việc */
+  function canView(u, t, creator, assignee) {
+    if (!u || !t) return false;
+    if (isLead(u)) return true;
+    if (t.assigneeId === u.id || t.creatorId === u.id || (t.collaborators || []).indexOf(u.id) >= 0) return true;
+    if (isTeamLead(u) && u.team && (t.team === u.team || (assignee && assignee.team === u.team))) return true;
+    return canApprove(u, t, creator);
+  }
+  /* Đầu việc: phần người không có quyền xem chi tiết vẫn thấy */
+  var HEAD_FIELDS = ['id', 'code', 'title', 'assigneeId', 'team', 'status', 'priority', 'startDate', 'dueDate', 'progress', 'submittedAt', 'doneDate', 'createdAt', 'updatedAt'];
+  function headOnly(t) { var o = { limited: true }; HEAD_FIELDS.forEach(function (f) { o[f] = t[f]; }); return o; }
   function canWork(u, t) { return u && t && (t.assigneeId === u.id || canManage(u, t)); }
   function effStatus(t, today) {
     if ((t.status === 'chua' || t.status === 'dang') && t.dueDate && t.dueDate < today) return 'qua_han';
@@ -335,7 +348,10 @@ var PDT = (function () {
       return {
         me: pubUser(me, me), today: today, version: VERSION,
         users: users().map(function (u) { return pubUser(u, me); }),
-        tasks: store.all('Tasks'),
+        tasks: store.all('Tasks').map(function (t) {
+          if (canView(me, t, userById(t.creatorId), userById(t.assigneeId))) return t;
+          return t.status === 'de_xuat' ? null : headOnly(t); /* đề xuất của người khác chưa duyệt thì không hiện */
+        }).filter(Boolean),
         plans: store.all('Plans'),
         notes: store.all('Notes').filter(function (n) { return n.userId === me.id; }),
         notifs: store.all('Notifs').filter(function (n) { return n.userId === me.id; })
@@ -344,8 +360,10 @@ var PDT = (function () {
       };
     };
 
-    A.taskDetail = function (d) {
+    function mustView(me, t) { if (!canView(me, t, userById(t.creatorId), userById(t.assigneeId))) err('Anh/chị chỉ xem được thông tin chung của việc này.'); }
+    A.taskDetail = function (d, me) {
       var t = task(d.id);
+      if (me) mustView(me, t);
       return { task: t, logs: store.all('Logs').filter(function (l) { return l.taskId === t.id; }).sort(function (a, b) { return a.at < b.at ? -1 : 1; }) };
     };
 
@@ -507,10 +525,11 @@ var PDT = (function () {
 
     A.addComment = function (d, me) {
       var t = task(d.taskId), text = String(d.text || '').trim();
+      mustView(me, t);
       if (!text) err('Chưa nhập nội dung.');
       log(t.id, me.id, 'comment', text.slice(0, 2000));
       notify(involved(t).concat(approversOf(t)), me.name + ' trao đổi ở "' + t.title + '": ' + text.slice(0, 80), t.id, me.id, 'trao_doi');
-      return A.taskDetail({ id: t.id });
+      return A.taskDetail({ id: t.id }, me);
     };
 
     A.addEvidence = function (d, me) {
@@ -835,7 +854,7 @@ var PDT = (function () {
     DEFAULT_SETTINGS: DEFAULT_SETTINGS, NHIEM_VU_2026: NHIEM_VU_2026,
     KIND_TITLE: KIND_TITLE, DOMAIN: DOMAIN, normEmail: normEmail, validEmail: validEmail,
     sha256: sha256, hashPass: hashPass, toRow: toRow, fromRow: fromRow, isoDate: isoDate, dayDiff: dayDiff,
-    isLead: isLead, isTeamLead: isTeamLead, canAssignTo: canAssignTo, canManage: canManage, canApprove: canApprove,
+    isLead: isLead, isTeamLead: isTeamLead, canAssignTo: canAssignTo, canManage: canManage, canApprove: canApprove, canView: canView,
     canWork: canWork, effStatus: effStatus, defaultScore: defaultScore, createCore: createCore
   };
 })();

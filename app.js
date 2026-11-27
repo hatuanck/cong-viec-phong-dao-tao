@@ -559,7 +559,7 @@
     }).filter(function (x) { return x.l.length; }).sort(function (a, b) { return b.l.length - a.l.length; });
     var max = ppl.length ? ppl[0].l.length : 1;
     var sr = curRange(S.sumMode, ym);
-    var rows = activeUsers().map(function (u) { return personEval(u, sr[0], sr[1]); })
+    var rows = activeUsers().filter(canSeePerson).map(function (u) { return personEval(u, sr[0], sr[1]); })
       .sort(function (a, b) { return (b.score == null ? -1 : b.score) - (a.score == null ? -1 : a.score) || b.giao - a.giao; });
 
     var left = alertsHtml() + '<div class="sec"><h2>Cần chú ý</h2><button class="link" data-all>Xem tất cả</button></div>' +
@@ -725,8 +725,18 @@
   }
 
   /* ================= Chi tiết công việc ================= */
+  /* Người được xem số liệu, điểm: lãnh đạo xem tất cả, Tổ trưởng, Tổ phó xem cán bộ trong tổ, chuyên viên xem của mình */
+  function canSeePerson(u) { var m = me(); return isLead() || u.id === m.id || (isTL() && !!m.team && u.team === m.team); }
   function openTask(id) {
     var t = task(id); if (!t) return;
+    if (t.limited) {
+      var au = user(t.assigneeId);
+      openModal(t.code, '<div class="dh">' + stPill(t) + ' <span class="pill">' + PDT.PRIORITY[t.priority || 'thuong'] + '</span><h2>' + esc(t.title) + '</h2>' +
+        '<dl class="kv"><dt>Người phụ trách</dt><dd>' + esc(au ? au.name : '—') + '</dd>' + (t.team ? '<dt>Tổ</dt><dd>' + esc(PDT.TEAMS[t.team] || t.team) + '</dd>' : '') +
+        '<dt>Thời gian</dt><dd>' + ddmmyyyy(startOf(t)) + ' → ' + ddmmyyyy(t.dueDate) + '</dd></dl>' +
+        '<div class="al b mt">' + ic('alert') + '<div><b>Chỉ xem thông tin chung</b><span style="display:block;-webkit-line-clamp:unset">Nội dung, tài liệu, minh chứng và trao đổi của việc này chỉ người phụ trách, người phối hợp, người giao việc, Tổ trưởng, Tổ phó của tổ và lãnh đạo Phòng xem được.</span></div></div></div>');
+      return;
+    }
     var ov = openModal(t.code, '<div class="empty"><span class="spin"></span></div>');
     var unreadIds = (D().notifs || []).filter(function (n) { return !n.read && n.taskId === id; }).map(function (n) { return n.id; });
     if (unreadIds.length) { (D().notifs || []).forEach(function (n) { if (unreadIds.indexOf(n.id) >= 0) n.read = true; }); render(); api('readNotifs', { ids: unreadIds }).catch(function () { }); }
@@ -762,7 +772,7 @@
     if (canMan && t.status === 'huy') btns.push('<button class="btn" data-op="restore">Khôi phục</button>');
     var collab = (t.collaborators || []).map(function (id) { var x = user(id); return x ? esc(x.name) : ''; }).filter(Boolean).join(', ');
     var pl = planItemLabel(t.planItem);
-    var dxNote = t.status === 'de_xuat' ? '<div class="al b" style="margin:0 0 10px">' + ic('inbox') + '<div><b>Đề xuất đang chờ duyệt</b><span style="white-space:normal">' +
+    var dxNote = t.status === 'de_xuat' ? '<div class="al b" style="margin:0 0 10px">' + ic('inbox') + '<div><b>Đề xuất đang chờ duyệt</b><span style="display:block;-webkit-line-clamp:unset">' +
       (t.creatorId === m.id ? 'Khi được duyệt, việc tự chuyển sang triển khai và anh/chị nhận thông báo.' : canAp ? 'Bấm "Duyệt, triển khai" để giao việc ngay cho người đề xuất; có thể đổi người thực hiện, hạn.' : 'Chờ lãnh đạo Phòng, tổ trưởng duyệt.') + '</span></div></div>' : '';
     var html = '<div class="dh">' + dxNote + stPill(t) + ' <span class="pill">' + PDT.PRIORITY[t.priority || 'thuong'] + '</span>' +
       '<h2>' + esc(t.title) + '</h2><div class="' + di.cls + ' small">' + di.txt + '</div>' +
@@ -1434,7 +1444,7 @@
   function renderEval() {
     var ym = S.month || [+today().slice(0, 4), +today().slice(5, 7)];
     var r = curRange(S.evalMode, ym);
-    var rows = activeUsers().map(function (u) { return personEval(u, r[0], r[1]); });
+    var rows = activeUsers().filter(canSeePerson).map(function (u) { return personEval(u, r[0], r[1]); });
     var tot = rows.reduce(function (s, x) { ['giao', 'xong', 'dung', 'tre', 'qua', 'ph'].forEach(function (k) { s[k] += x[k]; }); return s; }, { giao: 0, xong: 0, dung: 0, tre: 0, qua: 0, ph: 0 });
     var html = header('Đánh giá kết quả', { back: true, noRefresh: true }) +
       '<div class="bar"><button class="iconbtn" data-em="-1" aria-label="Trước">' + ic('left') + '</button><b style="font-size:17px">' + r[2] + '</b><button class="iconbtn" data-em="1" aria-label="Sau">' + ic('right') + '</button>' +
